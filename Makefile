@@ -23,12 +23,12 @@ clean: ## Clean the build directory
 .PHONY: build-cli
 build-cli: ## Build the CLI
 	@mkdir -p ./build
-	go build -trimpath -ldflags "-X github.com/flashbots/go-template/common.Version=${VERSION}" -v -o ./build/cli cmd/cli/main.go
+	go build -trimpath -ldflags "-X github.com/ruteri/poc-tee-registry/common.Version=${VERSION}" -v -o ./build/cli cmd/cli/main.go
 
 .PHONY: build-httpserver
 build-httpserver: ## Build the HTTP server
 	@mkdir -p ./build
-	go build -trimpath -ldflags "-X github.com/flashbots/go-template/common.Version=${VERSION}" -v -o ./build/httpserver cmd/httpserver/main.go
+	go build -trimpath -ldflags "-X github.com/ruteri/poc-tee-registry/common.Version=${VERSION}" -v -o ./build/httpserver cmd/httpserver/main.go
 
 ##@ Test & Development
 
@@ -92,3 +92,11 @@ docker-httpserver: ## Build the HTTP server Docker image
 		--file httpserver.dockerfile \
 		--tag your-project \
 	.
+
+.PHONY: bindings
+bindings: ## Generate golang bindings for the contract
+	forge build OnchainRegistry.sol
+	jq '.abi' out/OnchainRegistry.sol/Registry.json > Registry.abi
+	jq -r '.bytecode.object' out/OnchainRegistry.sol/Registry.json > Registry.bin
+	abigen --abi=Registry.abi --bin=Registry.bin --pkg=registry --out=bindings/registry/registry.go
+

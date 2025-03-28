@@ -5,7 +5,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/flashbots/go-template/common"
+	"github.com/ruteri/poc-tee-registry/common"
 	"github.com/urfave/cli/v2" // imports as package "cli"
 )
 

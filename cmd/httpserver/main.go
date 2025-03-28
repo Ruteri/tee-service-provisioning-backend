@@ -7,13 +7,22 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/flashbots/go-template/common"
-	"github.com/flashbots/go-template/httpserver"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/google/uuid"
+	"github.com/ruteri/poc-tee-registry/common"
+	"github.com/ruteri/poc-tee-registry/httpserver"
+	"github.com/ruteri/poc-tee-registry/kms"
+	"github.com/ruteri/poc-tee-registry/registry"
+	"github.com/ruteri/poc-tee-registry/storage"
 	"github.com/urfave/cli/v2" // imports as package "cli"
 )
 
 var flags []cli.Flag = []cli.Flag{
+	&cli.StringFlag{
+		Name:  "rpc-addr",
+		Value: "http://127.0.0.1:8545",
+		Usage: "address to connect to RPC",
+	},
 	&cli.StringFlag{
 		Name:  "listen-addr",
 		Value: "127.0.0.1:8080",
@@ -62,6 +71,7 @@ func main() {
 		Usage: "Serve API, and metrics",
 		Flags: flags,
 		Action: func(cCtx *cli.Context) error {
+			rpcAddress := cCtx.String("rpc-addr")
 			listenAddr := cCtx.String("listen-addr")
 			metricsAddr := cCtx.String("metrics-addr")
 			logJSON := cCtx.Bool("log-json")
@@ -95,7 +105,22 @@ func main() {
 				WriteTimeout:             30 * time.Second,
 			}
 
-			srv, err := httpserver.New(cfg)
+			ethClient, err := ethclient.Dial(rpcAddress)
+			if err != nil {
+				cfg.Log.Error("failed to dial rpc", "err", err)
+				return err
+			}
+
+			seed := [32]byte{}
+			kmsImpl, err := kms.NewSimpleKMS(seed[:])
+			if err != nil {
+				cfg.Log.Error("failed to create kms", "err", err)
+				return err
+			}
+
+			registryFactory := registry.NewRegistryFactory(ethClient)
+			handler := httpserver.NewHandler(kmsImpl, storage.NewStorageBackendFactory(log), registryFactory, log)
+			srv, err := httpserver.New(cfg, handler)
 			if err != nil {
 				cfg.Log.Error("failed to create server", "err", err)
 				return err

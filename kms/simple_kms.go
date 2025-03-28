@@ -1,0 +1,219 @@
+package kms
+
+import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"errors"
+	"fmt"
+	"math/big"
+	"sync"
+	"time"
+
+	"github.com/ruteri/poc-tee-registry/interfaces"
+)
+
+// SimpleKMS provides a straightforward implementation of the KMS interface
+type SimpleKMS struct {
+	masterKey []byte
+	mu        sync.RWMutex
+}
+
+// NewSimpleKMS creates a new instance of SimpleKMS
+func NewSimpleKMS(masterKey []byte) (*SimpleKMS, error) {
+	if len(masterKey) < 32 {
+		return nil, errors.New("master key must be at least 32 bytes")
+	}
+	
+	return &SimpleKMS{masterKey: masterKey}, nil
+}
+
+// GetPKI returns the CA certificate, app public key and attestation for a contract
+func (k *SimpleKMS) GetPKI(contractAddr interfaces.ContractAddress) (interfaces.AppPKI, error) {
+	// Derive CA key from contract address
+	caKey, err := k.deriveKey(contractAddr, "ca")
+	if err != nil {
+		return interfaces.AppPKI{}, err
+	}
+	
+	// Create a self-signed CA certificate
+	certPEM, err := createCACertificate(caKey, contractAddr)
+	if err != nil {
+		return interfaces.AppPKI{}, err
+	}
+
+	// Derive app key from contract address
+	appKey, err := k.deriveKey(contractAddr, "app")
+	if err != nil {
+		return interfaces.AppPKI{}, err
+	}
+	
+	// Extract and encode public key
+	pubKeyBytes, err := x509.MarshalPKIXPublicKey(&appKey.PublicKey)
+	if err != nil {
+		return interfaces.AppPKI{}, fmt.Errorf("failed to marshal public key: %w", err)
+	}
+	
+	pubKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: pubKeyBytes,
+	})
+	
+	// Simple attestation
+	attestation := []byte(fmt.Sprintf("Attestation for CA %x", contractAddr))
+	
+	return interfaces.AppPKI{certPEM, pubKeyPEM, attestation}, nil
+}
+
+// GetAppPrivkey returns the application private key
+func (k *SimpleKMS) GetAppPrivkey(contractAddr interfaces.ContractAddress) (interfaces.AppPrivkey, error) {
+	appKey, err := k.deriveKey(contractAddr, "app")
+	if err != nil {
+		return nil, err
+	}
+	
+	privKeyBytes, err := x509.MarshalECPrivateKey(appKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal private key: %w", err)
+	}
+	
+	return pem.EncodeToMemory(&pem.Block{
+		Type:  "EC PRIVATE KEY",
+		Bytes: privKeyBytes,
+	}), nil
+}
+
+// SignCSR signs a certificate signing request
+func (k *SimpleKMS) SignCSR(contractAddr interfaces.ContractAddress, csr interfaces.TLSCSR) (interfaces.TLSCert, error) {
+	// Parse CSR
+	block, _ := pem.Decode(csr)
+	if block == nil {
+		return nil, errors.New("failed to decode CSR")
+	}
+	
+	parsedCSR, err := x509.ParseCertificateRequest(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse CSR: %w", err)
+	}
+	
+	// Verify CSR signature
+	if err := parsedCSR.CheckSignature(); err != nil {
+		return nil, fmt.Errorf("CSR signature verification failed: %w", err)
+	}
+	
+	// Get CA key and certificate
+	caKey, err := k.deriveKey(contractAddr, "ca")
+	if err != nil {
+		return nil, err
+	}
+	
+	caCertPEM, err := createCACertificate(caKey, contractAddr)
+	if err != nil {
+		return nil, err
+	}
+	
+	caBlock, _ := pem.Decode(caCertPEM)
+	if caBlock == nil {
+		return nil, errors.New("failed to decode CA certificate")
+	}
+	
+	caCert, err := x509.ParseCertificate(caBlock.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse CA certificate: %w", err)
+	}
+	
+	// Generate serial number
+	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate serial number: %w", err)
+	}
+	
+	// Create certificate template
+	template := x509.Certificate{
+		SerialNumber:          serialNumber,
+		Subject:               parsedCSR.Subject,
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().AddDate(1, 0, 0), // 1 year validity
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
+		BasicConstraintsValid: true,
+		DNSNames:              parsedCSR.DNSNames,
+		IPAddresses:           parsedCSR.IPAddresses,
+	}
+	
+	// Create certificate
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, caCert, parsedCSR.PublicKey, caKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create certificate: %w", err)
+	}
+	
+	// Encode to PEM
+	return pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: certDER,
+	}), nil
+}
+
+// deriveKey derives a key from a contract address and purpose
+func (k *SimpleKMS) deriveKey(contractAddr interfaces.ContractAddress, purpose string) (*ecdsa.PrivateKey, error) {
+	// Create deterministic seed
+	h := sha256.New()
+	h.Write(k.masterKey)
+	h.Write(contractAddr[:])
+	h.Write([]byte(purpose))
+	seed := h.Sum(nil)
+	
+	// Create EC private key from seed
+	curve := elliptic.P256() // Use P-256 for all keys
+	privateKey := &ecdsa.PrivateKey{
+		PublicKey: ecdsa.PublicKey{
+			Curve: curve,
+		},
+		D: new(big.Int).SetBytes(seed[:32]), // Use first 32 bytes as private key
+	}
+	
+	// Generate public key
+	privateKey.PublicKey.X, privateKey.PublicKey.Y = curve.ScalarBaseMult(seed[:32])
+	
+	return privateKey, nil
+}
+
+// createCACertificate creates a self-signed CA certificate
+func createCACertificate(caKey *ecdsa.PrivateKey, contractAddr interfaces.ContractAddress) ([]byte, error) {
+	// Generate serial number
+	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate serial number: %w", err)
+	}
+	
+	// Create certificate template
+	template := x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			Organization: []string{"SimpleKMS"},
+			CommonName:   fmt.Sprintf("CA for %x", contractAddr),
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().AddDate(10, 0, 0), // 10 years validity
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+		MaxPathLen:            1,
+	}
+	
+	// Create certificate
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &caKey.PublicKey, caKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create certificate: %w", err)
+	}
+	
+	// Encode to PEM
+	return pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: certDER,
+	}), nil
+}

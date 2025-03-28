@@ -7,12 +7,13 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/flashbots/go-template/common"
-	"github.com/flashbots/go-template/metrics"
+	"github.com/ruteri/poc-tee-registry/common"
+	"github.com/ruteri/poc-tee-registry/metrics"
 	"github.com/flashbots/go-utils/httplogger"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"go.uber.org/atomic"
+	"go.uber.org/zap"
 )
 
 type HTTPServerConfig struct {
@@ -20,6 +21,7 @@ type HTTPServerConfig struct {
 	MetricsAddr string
 	EnablePprof bool
 	Log         *slog.Logger
+	ZapLogger   *zap.Logger // Added to support our handler
 
 	DrainDuration            time.Duration
 	GracefulShutdownDuration time.Duration
@@ -31,12 +33,14 @@ type Server struct {
 	cfg     *HTTPServerConfig
 	isReady atomic.Bool
 	log     *slog.Logger
+	zapLog  *zap.Logger
 
 	srv        *http.Server
 	metricsSrv *metrics.MetricsServer
+	handler    *Handler // Added to store our handler
 }
 
-func New(cfg *HTTPServerConfig) (srv *Server, err error) {
+func New(cfg *HTTPServerConfig, handler *Handler) (srv *Server, err error) {
 	metricsSrv, err := metrics.New(common.PackageName, cfg.MetricsAddr)
 	if err != nil {
 		return nil, err
@@ -45,10 +49,12 @@ func New(cfg *HTTPServerConfig) (srv *Server, err error) {
 	srv = &Server{
 		cfg:        cfg,
 		log:        cfg.Log,
+		zapLog:     cfg.ZapLogger,
 		srv:        nil,
 		metricsSrv: metricsSrv,
+		handler:    handler,
 	}
-	srv.isReady.Swap(true)
+	srv.isReady.Store(true)
 
 	srv.srv = &http.Server{
 		Addr:         cfg.ListenAddr,
@@ -62,7 +68,8 @@ func New(cfg *HTTPServerConfig) (srv *Server, err error) {
 
 func (srv *Server) getRouter() http.Handler {
 	mux := chi.NewRouter()
-	mux.With(srv.httpLogger).Get("/api", srv.handleAPI) // Never serve at `/` (root) path
+	mux.With(srv.httpLogger).Post("/api/attested/register", srv.handleRegister) 
+	mux.With(srv.httpLogger).Get("/api/public/app_metadata", srv.handleAppMetadata) 
 	mux.With(srv.httpLogger).Get("/livez", srv.handleLivenessCheck)
 	mux.With(srv.httpLogger).Get("/readyz", srv.handleReadinessCheck)
 	mux.With(srv.httpLogger).Get("/drain", srv.handleDrain)
@@ -77,6 +84,70 @@ func (srv *Server) getRouter() http.Handler {
 
 func (srv *Server) httpLogger(next http.Handler) http.Handler {
 	return httplogger.LoggingMiddlewareSlog(srv.log, next)
+}
+
+// Handlers that delegate to the improved Handler implementation
+func (srv *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
+	srv.handler.HandleRegister(w, r)
+}
+
+func (srv *Server) handleAppMetadata(w http.ResponseWriter, r *http.Request) {
+	srv.handler.HandleAppMetadata(w, r)
+}
+
+func (srv *Server) handleLivenessCheck(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"alive"}`))
+}
+
+func (srv *Server) handleReadinessCheck(w http.ResponseWriter, r *http.Request) {
+	if !srv.isReady.Load() {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.Write([]byte(`{"status":"not ready"}`))
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"ready"}`))
+}
+
+func (srv *Server) handleDrain(w http.ResponseWriter, r *http.Request) {
+	if !srv.isReady.Swap(false) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"already draining"}`))
+		return
+	}
+	
+	srv.log.Info("Server marked as not ready")
+	
+	// UPDATED: Use a goroutine to avoid blocking the request handler
+	go func() {
+		// Wait for the drain duration to allow load balancers to detect the change
+		time.Sleep(srv.cfg.DrainDuration)
+		srv.log.Info("Drain period completed")
+	}()
+	
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"draining"}`))
+}
+
+func (srv *Server) handleUndrain(w http.ResponseWriter, r *http.Request) {
+	if srv.isReady.Swap(true) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"already ready"}`))
+		return
+	}
+	
+	srv.log.Info("Server marked as ready")
+	
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"ready"}`))
 }
 
 func (srv *Server) RunInBackground() {

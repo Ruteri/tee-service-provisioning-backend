@@ -32,3 +32,10 @@ Cons:
 		consider modularizing disk encryption or kms client
 	-> baremetal only (and not simple to adjust that)
 	-> no CR yet, but we could add it (to KMS or as a module)
+
+
+```
+jq '.abi' out/OnchainRegistry.sol/Registry.json > Registry.abi
+jq -r '.bytecode.object' out/OnchainRegistry.sol/Registry.json > Registry.bin
+abigen --abi=Registry.abi --bin=Registry.bin --pkg=registry --out=Registry.go
+```
