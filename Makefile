@@ -102,8 +102,8 @@ bindings: ## Generate golang bindings for the contract
 
 .PHONY: doc
 doc: ## Generate godoc for all files
-	go doc -all interfaces > interfaces.doc
-	go doc -all storage > storage.doc
-	go doc -all registry > registry.doc
-	go doc -all kms > kms.doc
-	go doc -all bindings/registry > registry_bindings.doc
+	go doc -all interfaces > doc_interfaces.md
+	go doc -all storage > doc_storage.md
+	go doc -all registry > doc_registry.md
+	go doc -all kms > doc_kms.md
+	go doc -all bindings/registry > doc_registry_bindings.md
