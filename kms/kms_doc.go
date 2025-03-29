@@ -1,7 +1,8 @@
 // Package kms provides key management services for TEE applications.
 //
 // The KMS package is responsible for managing cryptographic keys, certificates,
-// and attestations for TEE instances. It implements the interfaces.KMS interface:
+// and attestations for TEE instances. It also provides the cryptographic materials
+// needed for secure secret management. It implements the interfaces.KMS interface:
 //
 //	// KMS defines the interface for key management operations
 //	type KMS interface {
@@ -12,6 +13,7 @@
 //	
 //		// GetAppPrivkey returns the application private key (interface assumes attestation and identity have been verified already)
 //		// The instance must be connected to through attested communication channels, whether directly or indirectly!
+//		// This private key is also used for decrypting pre-encrypted secrets in configuration templates.
 //		GetAppPrivkey(contractAddr ContractAddress) (AppPrivkey, error)
 //	
 //		// SignCSR signs a certificate signing request (interface assumes attestation and identity have been verified already)
@@ -35,11 +37,24 @@
 //   - Contract address (identifies the application)
 //   - Purpose ("ca" for certificate authorities, "app" for application keys)
 //
+// # Secret Management
+//
+// The KMS plays a critical role in the secure management of secrets:
+//   - The app's public key (from GetPKI) is used to pre-encrypt secrets before storage
+//   - The app's private key (from GetAppPrivkey) is used by the handler to decrypt secrets
+//     when processing configuration templates
+//   - This asymmetric encryption ensures that secrets can only be decrypted by the
+//     authorized TEE instance with the correct private key
+//
 // # Security Considerations
 //
 // The KMS implementations assume that attestation and identity verification
 // have already been performed before sensitive cryptographic operations.
 // Connections to instances must be secured through attested channels.
+//
+// Private keys should never leave the server except when being sent to a properly
+// attested TEE instance. The private key allows not only for TLS communication but
+// also for decrypting sensitive configuration secrets.
 //
 // # Usage Example
 //
@@ -59,6 +74,15 @@
 //	if err != nil {
 //	    log.Fatalf("Failed to get PKI: %v", err)
 //	}
+//	
+//	// Get private key for decrypting secrets
+//	privateKey, err := simpleKMS.GetAppPrivkey(contractAddr)
+//	if err != nil {
+//	    log.Fatalf("Failed to get app private key: %v", err)
+//	}
+//	
+//	// Use private key to decrypt a pre-encrypted secret
+//	decryptedSecret, err := crypto.DecryptWithPrivateKey(privateKey, encryptedSecret)
 //	
 //	// Sign a CSR for a verified TEE instance
 //	tlsCert, err := simpleKMS.SignCSR(contractAddr, csrData)

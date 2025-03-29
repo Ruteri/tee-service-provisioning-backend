@@ -10,8 +10,21 @@ Main features:
   • TEE instance registration with attestation validation
   • Retrieval of cryptographic materials (private keys, certificates)
   • Retrieval of application metadata and configuration
-  • Configuration templating with reference resolution
+  • Secret management with server-side decryption
   • Health and diagnostics endpoints
+
+# Secret Management
+
+The server handles pre-encrypted secrets securely:
+
+  • Secrets are stored encrypted in storage backends (encrypted with the app's public key)
+  • Referenced in config templates using __SECRET_REF_<hash> syntax
+  • During template processing, the server:
+    - Fetches the encrypted secret from storage
+    - Decrypts it using the app's private key from KMS
+    - Embeds the plaintext secret in the configuration sent to the TEE instance
+  • JSON secrets are inserted as objects, non-JSON as properly escaped strings
+  • Decryption failures are logged and the reference is omitted from the configuration
 
 API Endpoints:
 

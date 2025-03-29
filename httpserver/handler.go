@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/ruteri/poc-tee-registry/cryptoutils"
 	"github.com/ruteri/poc-tee-registry/interfaces"
 )
 
@@ -53,6 +54,8 @@ func (e *RequestError) Error() string {
 
 // Handler processes HTTP requests for the TEE registry service.
 // It integrates with the KMS, storage system, and on-chain registry.
+// The handler is responsible for processing configuration templates,
+// including decrypting any pre-encrypted secrets.
 type Handler struct {
 	kms             interfaces.KMS
 	storageFactory  interfaces.StorageBackendFactory
@@ -63,7 +66,7 @@ type Handler struct {
 // NewHandler creates a new HTTP request handler with the specified dependencies.
 //
 // Parameters:
-//   - kms: Key Management Service for cryptographic operations
+//   - kms: Key Management Service for cryptographic operations and secret decryption
 //   - storageFactory: Factory for creating storage backends
 //   - registryFactory: Factory for creating registry clients
 //   - log: Structured logger for operational insights
@@ -92,7 +95,10 @@ func NewHandler(kms interfaces.KMS, storageFactory interfaces.StorageBackendFact
 // Response: JSON containing:
 //   - app_privkey: Private key for the application
 //   - tls_cert: Signed TLS certificate
-//   - config: Instance configuration with resolved references
+//   - config: Instance configuration with resolved references and decrypted secrets
+//
+// The handler decrypts any pre-encrypted secrets referenced in the configuration template
+// before sending the response, ensuring the TEE instance receives plaintext secrets.
 func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 	// Parse attestation type from header
 	attestationType := r.Header.Get(AttestationTypeHeader)
@@ -270,11 +276,11 @@ func attestationToIdentity(attestationType string, measurements map[string]strin
 //   - Signed TLS certificate
 //   - Instance configuration
 //   - Error if registration fails
-func (h *Handler) handleRegister(ctx context.Context, attestationType string, measurements map[string]string, contractAddress interfaces.ContractAddress, csr interfaces.TLSCSR) (interfaces.AppPrivkey, interfaces.TLSCert, interfaces.InstanceConfig, error) {
+func (h *Handler) handleRegister(ctx context.Context, attestationType string, measurements map[string]string, contractAddr interfaces.ContractAddress, csr interfaces.TLSCSR) (interfaces.AppPrivkey, interfaces.TLSCert, interfaces.InstanceConfig, error) {
 	// Get the registry for this contract
-	registry, err := h.registryFactory.RegistryFor(contractAddress)
+	registry, err := h.registryFactory.RegistryFor(contractAddr)
 	if err != nil {
-		h.log.Error("Failed to get registry for contract", "err", err, slog.String("contractAddress", string(contractAddress[:])))
+		h.log.Error("Failed to get registry for contract", "err", err, slog.String("contractAddress", string(contractAddr[:])))
 		return nil, nil, nil, fmt.Errorf("registry access error: %w", err)
 	}
 
@@ -284,30 +290,30 @@ func (h *Handler) handleRegister(ctx context.Context, attestationType string, me
 		h.log.Error("Failed to compute identity", "err", err, slog.String("attestationType", attestationType))
 		return nil, nil, nil, fmt.Errorf("identity computation error: %w", err)
 	}
-	
+
 	// Check if identity is whitelisted
 	isWhitelisted, err := registry.IsWhitelisted(identity)
 	if err != nil {
 		h.log.Error("Failed to check if identity is whitelisted", "err", err, slog.String("identity", string(identity[:])))
 		return nil, nil, nil, fmt.Errorf("whitelist check error: %w", err)
 	}
-	
+
 	if !isWhitelisted {
 		h.log.Warn("Identity not whitelisted", slog.String("identity", string(identity[:])))
 		return nil, nil, nil, errors.New("identity not whitelisted")
 	}
 
 	// Get application private key for this contract
-	appPrivkey, err := h.kms.GetAppPrivkey(contractAddress)
+	appPrivkey, err := h.kms.GetAppPrivkey(contractAddr)
 	if err != nil {
-		h.log.Error("Failed to get app private key", "err", err, slog.String("contractAddress", string(contractAddress[:])))
+		h.log.Error("Failed to get app private key", "err", err, slog.String("contractAddress", string(contractAddr[:])))
 		return nil, nil, nil, fmt.Errorf("key retrieval error: %w", err)
 	}
 
 	// Sign the CSR to create TLS certificate
-	tlsCert, err := h.kms.SignCSR(contractAddress, csr)
+	tlsCert, err := h.kms.SignCSR(contractAddr, csr)
 	if err != nil {
-		h.log.Error("Failed to sign CSR", "err", err, slog.String("contractAddress", string(contractAddress[:])))
+		h.log.Error("Failed to sign CSR", "err", err, slog.String("contractAddress", string(contractAddr[:])))
 		return nil, nil, nil, fmt.Errorf("certificate signing error: %w", err)
 	}
 
@@ -317,7 +323,7 @@ func (h *Handler) handleRegister(ctx context.Context, attestationType string, me
 		h.log.Error("Failed to get config template hash", "err", err, slog.String("identity", string(identity[:])))
 		return nil, nil, nil, fmt.Errorf("config lookup error: %w", err)
 	}
-	
+
 	if configTemplateHash == [32]byte{} {
 		h.log.Error("No config template assigned to identity", slog.String("identity", string(identity[:])))
 		return nil, nil, nil, errors.New("no config template assigned to identity")
@@ -330,29 +336,12 @@ func (h *Handler) handleRegister(ctx context.Context, attestationType string, me
 		return nil, nil, nil, fmt.Errorf("storage backend retrieval error: %w", err)
 	}
 
-	// Create a slice to hold all storage backends
-	var storageBackends []interfaces.StorageBackend
-	for _, location := range backendLocations {
-		// Convert string to StorageBackendLocation since that's what the factory expects
-		backend, err := h.storageFactory.StorageBackendFor(interfaces.StorageBackendLocation(location))
-		if err != nil {
-			h.log.Warn("Failed to create storage backend", "err", err, slog.String("location", location))
-			continue // Skip this backend if it fails
-		}
-		storageBackends = append(storageBackends, backend)
-	}
-
-	if len(storageBackends) == 0 {
-		h.log.Error("No valid storage backends available")
-		return nil, nil, nil, errors.New("no storage backends available")
-	}
-
 	// Convert []string to []StorageBackendLocation for CreateMultiBackend
 	locationURIs := make([]interfaces.StorageBackendLocation, len(backendLocations))
 	for i, loc := range backendLocations {
 		locationURIs[i] = interfaces.StorageBackendLocation(loc)
 	}
-	
+
 	// Create multi-storage backend
 	multiStorage, err := h.storageFactory.CreateMultiBackend(locationURIs)
 	if err != nil {
@@ -367,8 +356,8 @@ func (h *Handler) handleRegister(ctx context.Context, attestationType string, me
 		return nil, nil, nil, fmt.Errorf("config template retrieval error: %w", err)
 	}
 
-	// Process the config template by resolving references to configs and secrets
-	processedConfig, err := h.processConfigTemplate(ctx, multiStorage, configTemplate)
+	// Process the config template - pass the app private key for decryption
+	processedConfig, err := h.processConfigTemplate(ctx, multiStorage, configTemplate, appPrivkey)
 	if err != nil {
 		h.log.Error("Failed to process config template", "err", err)
 		return nil, nil, nil, fmt.Errorf("config processing error: %w", err)
@@ -455,20 +444,23 @@ func replaceReference(templateStr, oldStr, newStr string) string {
 
 // processConfigTemplate resolves all references in a configuration template.
 // It replaces config and secret references with their actual content.
-//
-// References have the form:
-//   - __CONFIG_REF_<hash> - Reference to another config
-//   - __SECRET_REF_<hash> - Reference to a secret
+// For secret references, it retrieves pre-encrypted secrets from storage and
+// decrypts them using the application's private key before inclusion in the
+// configuration.
 //
 // Parameters:
 //   - ctx: Context for the operation
 //   - storage: Storage backend to fetch referenced content
 //   - configTemplate: Original template with references
+//   - appPrivKey: Application private key for decrypting secrets
 //
 // Returns:
-//   - Processed configuration with all references resolved
-//   - Error if reference resolution fails
-func (h *Handler) processConfigTemplate(ctx context.Context, storage interfaces.StorageBackend, configTemplate []byte) (interfaces.InstanceConfig, error) {
+//   - Processed configuration with all references resolved and secrets decrypted
+//   - Error if reference resolution or decryption fails
+//
+// Secret references have the form: __SECRET_REF_<hash>
+// These are replaced with the decrypted content of the referenced secret.
+func (h *Handler) processConfigTemplate(ctx context.Context, storage interfaces.StorageBackend, configTemplate []byte, appPrivKey interfaces.AppPrivkey) (interfaces.InstanceConfig, error) {
 	// Convert to string for easier processing
 	templateStr := string(configTemplate)
 
@@ -488,14 +480,14 @@ func (h *Handler) processConfigTemplate(ctx context.Context, storage interfaces.
 	for _, ref := range configRefs {
 		configHash, err := hexToHash(ref.hash)
 		if err != nil {
-			h.log.Warn("Invalid config hash format", slog.String("hash", ref.hash))
-			continue
+			h.log.Error("Invalid config hash format", slog.String("hash", ref.hash), "err", err)
+			return nil, fmt.Errorf("invalid config hash format %s: %w", ref.hash, err)
 		}
 
 		configData, err := storage.Fetch(ctx, configHash, interfaces.ConfigType)
 		if err != nil {
-			h.log.Warn("Failed to fetch config", "err", err, slog.String("hash", ref.hash))
-			continue
+			h.log.Error("Failed to fetch config", "err", err, slog.String("hash", ref.hash))
+			return nil, fmt.Errorf("failed to fetch config %s: %w", ref.hash, err)
 		}
 
 		// Replace the reference with the actual config
@@ -508,22 +500,30 @@ func (h *Handler) processConfigTemplate(ctx context.Context, storage interfaces.
 		return nil, fmt.Errorf("error finding secret references: %w", err)
 	}
 
-	// Replace each secret reference with actual content
+	// Replace each secret reference with the decrypted secret value
 	for _, ref := range secretRefs {
 		secretHash, err := hexToHash(ref.hash)
 		if err != nil {
-			h.log.Warn("Invalid secret hash format", slog.String("hash", ref.hash))
-			continue
+			h.log.Error("Invalid secret hash format", slog.String("hash", ref.hash), "err", err)
+			return nil, fmt.Errorf("invalid secret hash format %s: %w", ref.hash, err)
 		}
 
-		secretData, err := storage.Fetch(ctx, secretHash, interfaces.SecretType)
+		// Fetch the pre-encrypted secret
+		encryptedSecretData, err := storage.Fetch(ctx, secretHash, interfaces.SecretType)
 		if err != nil {
-			h.log.Warn("Failed to fetch secret", "err", err, slog.String("hash", ref.hash))
-			continue
+			h.log.Error("Failed to fetch secret", "err", err, slog.String("hash", ref.hash))
+			return nil, fmt.Errorf("failed to fetch secret %s: %w", ref.hash, err)
 		}
 
-		// Replace the reference with the actual secret
-		templateStr = replaceReference(templateStr, ref.fullRef, string(secretData))
+		// Decrypt the secret with the app's private key
+		decryptedData, err := cryptoutils.DecryptWithPrivateKey(appPrivKey, encryptedSecretData)
+		if err != nil {
+			h.log.Error("Failed to decrypt secret", "err", err, slog.String("hash", ref.hash))
+			return nil, fmt.Errorf("failed to decrypt secret %s: %w", ref.hash, err)
+		}
+
+		// Note: might need escaping
+		templateStr = replaceReference(templateStr, ref.fullRef, string(decryptedData))
 	}
 
 	return []byte(templateStr), nil
