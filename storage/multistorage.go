@@ -4,19 +4,22 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings" // Added missing import
+	"strings"
 	"time"
 
 	"github.com/ruteri/poc-tee-registry/interfaces"
 )
 
-// MultiStorageBackend implements interfaces.StorageBackend using multiple backends with fallback
+// MultiStorageBackend implements a storage backend that aggregates multiple backends.
+// It provides redundancy by attempting operations across all available backends.
 type MultiStorageBackend struct {
 	backends []interfaces.StorageBackend
 	log      *slog.Logger
 }
 
-// NewMultiStorageBackend creates a new multi-storage backend with fallback
+// NewMultiStorageBackend creates a storage backend that uses multiple underlying backends.
+// For reads, it tries each backend until content is found.
+// For writes, it attempts to store in all available backends.
 func NewMultiStorageBackend(backends []interfaces.StorageBackend, logger *slog.Logger) *MultiStorageBackend {
 	// If no logger is provided, create a default one
 	if logger == nil {
@@ -29,6 +32,8 @@ func NewMultiStorageBackend(backends []interfaces.StorageBackend, logger *slog.L
 	}
 }
 
+// Fetch retrieves data by trying each backend sequentially until content is found.
+// Returns an error if all backends fail to fetch the content.
 func (m *MultiStorageBackend) Fetch(ctx context.Context, id interfaces.ContentID, contentType interfaces.ContentType) ([]byte, error) {
     start := time.Now()
     var errs []error
@@ -66,7 +71,8 @@ func (m *MultiStorageBackend) Fetch(ctx context.Context, id interfaces.ContentID
     return nil, fmt.Errorf("all backends failed to fetch %s: %v", contentIDStr, errs)
 }
 
-// Store saves data to all available backends
+// Store attempts to save data to all available backends, succeeding if at least one succeeds.
+// Returns an error only if all backends fail to store the data.
 func (m *MultiStorageBackend) Store(ctx context.Context, data []byte, contentType interfaces.ContentType) (interfaces.ContentID, error) {
     start := time.Now()
     var result [32]byte
@@ -114,7 +120,7 @@ func (m *MultiStorageBackend) Store(ctx context.Context, data []byte, contentTyp
     return result, nil
 }
 
-// Available checks if any backend is available
+// Available returns true if any of the underlying backends is available.
 func (m *MultiStorageBackend) Available(ctx context.Context) bool {
 	for _, backend := range m.backends {
 		if backend.Available(ctx) {
@@ -124,15 +130,13 @@ func (m *MultiStorageBackend) Available(ctx context.Context) bool {
 	return false
 }
 
-// Name returns the name of this backend
+// Name returns the identifier for this aggregated storage backend.
 func (m *MultiStorageBackend) Name() string {
 	return "multi-storage"
 }
 
-// LocationURI returns the URI of this backend
-// ADDED: to complete the interface implementation
+// LocationURI returns a comma-separated list of all backend URIs in this multi-backend.
 func (m *MultiStorageBackend) LocationURI() string {
-	// Build a combined location URI from all backends
 	var locations []string
 	for _, backend := range m.backends {
 		locations = append(locations, backend.LocationURI())

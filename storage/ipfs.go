@@ -14,7 +14,8 @@ import (
 	"github.com/ruteri/poc-tee-registry/interfaces"
 )
 
-// IPFSBackend implements interfaces.StorageBackend using IPFS
+// IPFSBackend implements a storage backend using the InterPlanetary File System (IPFS).
+// It can connect to either an IPFS node or a gateway.
 type IPFSBackend struct {
 	shell       *shell.Shell
 	host        string
@@ -25,7 +26,8 @@ type IPFSBackend struct {
 	locationURI string
 }
 
-// NewIPFSBackend creates a new IPFS storage backend
+// NewIPFSBackend creates a new IPFS storage backend connected to the specified host and port.
+// When useGateway is true, it uses the IPFS HTTP gateway instead of the IPFS API.
 func NewIPFSBackend(host, port string, useGateway bool, timeout string, log *slog.Logger) (*IPFSBackend, error) {
 	// Construct API URL
 	apiURL := fmt.Sprintf("%s:%s", host, port)
@@ -52,6 +54,9 @@ func NewIPFSBackend(host, port string, useGateway bool, timeout string, log *slo
 	}, nil
 }
 
+// Fetch retrieves data from IPFS by its content identifier and type.
+// Returns ErrContentNotFound if the content doesn't exist or ErrBackendUnavailable
+// if the IPFS node is not accessible.
 func (b *IPFSBackend) Fetch(ctx context.Context, id interfaces.ContentID, contentType interfaces.ContentType) ([]byte, error) {
     start := time.Now()
     path := b.getIPFSPath(id, contentType)
@@ -105,7 +110,9 @@ func (b *IPFSBackend) Fetch(ctx context.Context, id interfaces.ContentID, conten
     return data, nil
 }
 
-// Store saves data to IPFS and returns its identifier
+// Store adds data to IPFS and returns its content identifier.
+// The identifier is the SHA-256 hash of the data.
+// Returns ErrBackendUnavailable if the IPFS node is not accessible.
 func (b *IPFSBackend) Store(ctx context.Context, data []byte, contentType interfaces.ContentType) (interfaces.ContentID, error) {
 	// Generate content ID by hashing the data
 	hash := sha256.Sum256(data)
@@ -130,22 +137,22 @@ func (b *IPFSBackend) Store(ctx context.Context, data []byte, contentType interf
 	return id, nil
 }
 
-// Available checks if the IPFS backend is accessible
+// Available checks if the IPFS node is accessible.
 func (b *IPFSBackend) Available(ctx context.Context) bool {
 	return b.shell.IsUp()
 }
 
-// Name returns the name of this backend
+// Name returns a unique identifier for this storage backend.
 func (b *IPFSBackend) Name() string {
 	return fmt.Sprintf("ipfs-%s-%s", b.host, b.port)
 }
 
-// LocationURI returns the URI of this backend
+// LocationURI returns the URI that identifies this storage backend.
 func (b *IPFSBackend) LocationURI() string {
 	return b.locationURI
 }
 
-// getIPFSPath generates an IPFS path based on content ID and type
+// getIPFSPath generates an IPFS path based on content ID and type.
 func (b *IPFSBackend) getIPFSPath(id interfaces.ContentID, contentType interfaces.ContentType) string {
 	prefix := b.prefixes[contentType]
 	idStr := fmt.Sprintf("%x", id)

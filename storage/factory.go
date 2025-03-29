@@ -9,19 +9,22 @@ import (
 	"github.com/ruteri/poc-tee-registry/interfaces"
 )
 
-// StorageBackendFactory creates storage backends
+// StorageBackendFactory creates storage backends from URI strings and manages
+// multi-backend configurations for redundant storage.
 type StorageBackendFactory struct {
 	log *slog.Logger
 }
 
-// NewStorageBackendFactory creates a new factory instance
+// NewStorageBackendFactory creates a new factory instance with the specified logger.
 func NewStorageBackendFactory(logger *slog.Logger) *StorageBackendFactory {
 	return &StorageBackendFactory{
 		log: logger,
 	}
 }
 
-// StorageBackendFor creates a storage backend from a location URI
+// StorageBackendFor creates a storage backend from a location URI.
+// Supported schemes: file://, s3://, ipfs://
+// Returns an error if the URI is invalid or the scheme is unsupported.
 func (sf *StorageBackendFactory) StorageBackendFor(locationURI interfaces.StorageBackendLocation) (interfaces.StorageBackend, error) {
 	// Parse the URI
 	u, err := url.Parse(string(locationURI))
@@ -42,7 +45,9 @@ func (sf *StorageBackendFactory) StorageBackendFor(locationURI interfaces.Storag
 	}
 }
 
-// CreateMultiBackend creates a multi-storage backend from a list of location URIs
+// CreateMultiBackend creates a multi-storage backend from a list of location URIs.
+// The multi-backend aggregates all valid backends, providing redundancy for storage operations.
+// Returns an error if no valid backends could be created.
 func (sf *StorageBackendFactory) CreateMultiBackend(locationURIs []interfaces.StorageBackendLocation) (interfaces.StorageBackend, error) {
 	backends := make([]interfaces.StorageBackend, 0, len(locationURIs))
 	
@@ -64,7 +69,8 @@ func (sf *StorageBackendFactory) CreateMultiBackend(locationURIs []interfaces.St
 	return NewMultiStorageBackend(backends, sf.log), nil
 }
 
-// createIPFSBackend creates an IPFS storage backend
+// createIPFSBackend creates an IPFS storage backend from the parsed URI.
+// URI format: ipfs://host:port/?gateway=true&timeout=30s
 func (sf *StorageBackendFactory) createIPFSBackend(u *url.URL) (interfaces.StorageBackend, error) {
 	sf.log.Debug("Creating IPFS backend", slog.String("uri", u.String()))
 	
@@ -89,7 +95,8 @@ func (sf *StorageBackendFactory) createIPFSBackend(u *url.URL) (interfaces.Stora
 	return NewIPFSBackend(host, port, useGateway, timeout, sf.log)
 }
 
-// createS3Backend creates an S3 storage backend
+// createS3Backend creates an S3 storage backend from the parsed URI.
+// URI format: s3://[ACCESS_KEY:SECRET_KEY@]bucket-name/path/?region=us-west-2&endpoint=custom.s3.com
 func (sf *StorageBackendFactory) createS3Backend(u *url.URL) (interfaces.StorageBackend, error) {
 	sf.log.Debug("Creating S3 backend", slog.String("uri", u.String()))
 	
@@ -129,7 +136,8 @@ func (sf *StorageBackendFactory) createS3Backend(u *url.URL) (interfaces.Storage
 	return NewS3Backend(bucketName, path, region, endpoint, accessKey, secretKey, sf.log)
 }
 
-// createFileBackend creates a file system storage backend
+// createFileBackend creates a file system storage backend from the parsed URI.
+// URI format: file:///absolute/path/ or file://./relative/path/
 func (sf *StorageBackendFactory) createFileBackend(u *url.URL) (interfaces.StorageBackend, error) {
 	sf.log.Debug("Creating file backend", slog.String("uri", u.String()))
 	

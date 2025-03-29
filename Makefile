@@ -100,3 +100,7 @@ bindings: ## Generate golang bindings for the contract
 	jq -r '.bytecode.object' out/OnchainRegistry.sol/Registry.json > Registry.bin
 	abigen --abi=Registry.abi --bin=Registry.bin --pkg=registry --out=bindings/registry/registry.go
 
+.PHONY: doc
+doc: ## Generate godoc for all files
+	go doc -all storage > storage/storage.doc
+	go doc -all registry > registry/registry.doc

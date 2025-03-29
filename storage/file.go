@@ -5,13 +5,14 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"log/slog"
-	"os" // Updated import
+	"os"
 	"path/filepath"
 
 	"github.com/ruteri/poc-tee-registry/interfaces"
 )
 
-// FileBackend implements interfaces.StorageBackend using the local file system
+// FileBackend implements a storage backend using the local file system.
+// Content is stored in a directory structure organized by content type.
 type FileBackend struct {
 	baseDir     string
 	prefixes    map[interfaces.ContentType]string
@@ -19,7 +20,8 @@ type FileBackend struct {
 	locationURI string
 }
 
-// NewFileBackend creates a new file storage backend
+// NewFileBackend creates a new file storage backend using the specified base directory.
+// It creates subdirectories for different content types if they don't exist.
 func NewFileBackend(baseDir string, log *slog.Logger) (*FileBackend, error) {
 	// Ensure base directory exists
 	if err := os.MkdirAll(baseDir, 0755); err != nil {
@@ -52,7 +54,8 @@ func NewFileBackend(baseDir string, log *slog.Logger) (*FileBackend, error) {
 	}, nil
 }
 
-// Fetch retrieves data from the file system by its identifier and type
+// Fetch retrieves data from the file system by its content identifier and type.
+// Returns ErrContentNotFound if the file doesn't exist.
 func (b *FileBackend) Fetch(ctx context.Context, id interfaces.ContentID, contentType interfaces.ContentType) ([]byte, error) {
 	// Get file path
 	filePath := b.getFilePath(id, contentType)
@@ -62,7 +65,7 @@ func (b *FileBackend) Fetch(ctx context.Context, id interfaces.ContentID, conten
 		return nil, interfaces.ErrContentNotFound
 	}
 	
-	// Read file content - UPDATED: use os.ReadFile instead of ioutil.ReadFile
+	// Read file content
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
@@ -75,7 +78,8 @@ func (b *FileBackend) Fetch(ctx context.Context, id interfaces.ContentID, conten
 	return data, nil
 }
 
-// Store saves data to the file system and returns its identifier
+// Store saves data to the file system and returns its content identifier.
+// The identifier is the SHA-256 hash of the data.
 func (b *FileBackend) Store(ctx context.Context, data []byte, contentType interfaces.ContentType) (interfaces.ContentID, error) {
 	// Generate content ID by hashing the data
 	hash := sha256.Sum256(data)
@@ -89,7 +93,7 @@ func (b *FileBackend) Store(ctx context.Context, data []byte, contentType interf
 		return id, fmt.Errorf("failed to create directory: %w", err)
 	}
 	
-	// Write data to file - UPDATED: use os.WriteFile instead of ioutil.WriteFile
+	// Write data to file
 	if err := os.WriteFile(filePath, data, 0644); err != nil {
 		return id, fmt.Errorf("failed to write file: %w", err)
 	}
@@ -101,7 +105,7 @@ func (b *FileBackend) Store(ctx context.Context, data []byte, contentType interf
 	return id, nil
 }
 
-// Other methods remain unchanged
+// Available checks if the file backend is accessible by verifying the base directory exists.
 func (b *FileBackend) Available(ctx context.Context) bool {
 	_, err := os.Stat(b.baseDir)
 	if err != nil {
@@ -111,14 +115,17 @@ func (b *FileBackend) Available(ctx context.Context) bool {
 	return true
 }
 
+// Name returns a unique identifier for this storage backend.
 func (b *FileBackend) Name() string {
 	return fmt.Sprintf("file-%s", filepath.Base(b.baseDir))
 }
 
+// LocationURI returns the URI that identifies this storage backend.
 func (b *FileBackend) LocationURI() string {
 	return b.locationURI
 }
 
+// getFilePath generates a file path for a content ID and type.
 func (b *FileBackend) getFilePath(id interfaces.ContentID, contentType interfaces.ContentType) string {
 	subdir := b.prefixes[contentType]
 	idStr := fmt.Sprintf("%x", id)

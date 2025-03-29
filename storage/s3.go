@@ -18,19 +18,22 @@ import (
 	"github.com/ruteri/poc-tee-registry/interfaces"
 )
 
-// S3Backend implements interfaces.StorageBackend using Amazon S3 or compatible services
+// S3Backend implements a storage backend using Amazon S3 or compatible services.
+// It supports both public read-only access and authenticated write access.
 type S3Backend struct {
-	client     *s3.S3
-	writeClient *s3.S3  // Separate client with write credentials if provided
-	bucketName string
-	prefix     string
-	prefixes   map[interfaces.ContentType]string
-	log        *slog.Logger
-	locationURI string
+	client         *s3.S3
+	writeClient    *s3.S3
+	bucketName     string
+	prefix         string
+	prefixes       map[interfaces.ContentType]string
+	log            *slog.Logger
+	locationURI    string
 	hasWriteAccess bool
 }
 
-// NewS3Backend creates a new S3 storage backend
+// NewS3Backend creates a new S3 storage backend.
+// If accessKey and secretKey are provided, the backend will have write access.
+// Otherwise, it will be read-only for publicly accessible objects.
 func NewS3Backend(bucketName, prefix, region, endpoint, accessKey, secretKey string, log *slog.Logger) (*S3Backend, error) {
 	// Format the URI for tracking
 	uri := fmt.Sprintf("s3://%s/%s?region=%s", bucketName, prefix, region)
@@ -87,20 +90,22 @@ func NewS3Backend(bucketName, prefix, region, endpoint, accessKey, secretKey str
 	}
 	
 	return &S3Backend{
-		client:     readClient,
-		writeClient: writeClient,
-		bucketName: bucketName,
-		prefix:     strings.TrimSuffix(prefix, "/"),
+		client:        readClient,
+		writeClient:   writeClient,
+		bucketName:    bucketName,
+		prefix:        strings.TrimSuffix(prefix, "/"),
 		prefixes: map[interfaces.ContentType]string{
 			interfaces.ConfigType: "configs",
 			interfaces.SecretType: "secrets",
 		},
-		log:        log,
-		locationURI: uri,
+		log:           log,
+		locationURI:   uri,
 		hasWriteAccess: hasWriteAccess,
 	}, nil
 }
 
+// Fetch retrieves an object from S3 by its content identifier and type.
+// Returns ErrContentNotFound if the object doesn't exist.
 func (b *S3Backend) Fetch(ctx context.Context, id interfaces.ContentID, contentType interfaces.ContentType) ([]byte, error) {
     start := time.Now()
     key := b.getObjectKey(id, contentType)
@@ -154,7 +159,9 @@ func (b *S3Backend) Fetch(ctx context.Context, id interfaces.ContentID, contentT
     return data, nil
 }
 
-// Store saves data to S3 and returns its identifier
+// Store saves data to S3 and returns its content identifier.
+// The identifier is the SHA-256 hash of the data.
+// Objects are stored with public-read ACL by default.
 func (b *S3Backend) Store(ctx context.Context, data []byte, contentType interfaces.ContentType) (interfaces.ContentID, error) {
 	// Generate content ID by hashing the data
 	hash := sha256.Sum256(data)
@@ -185,7 +192,7 @@ func (b *S3Backend) Store(ctx context.Context, data []byte, contentType interfac
 	return id, nil
 }
 
-// Available checks if the S3 backend is accessible
+// Available checks if the S3 backend is accessible by attempting to head the bucket.
 func (b *S3Backend) Available(ctx context.Context) bool {
     start := time.Now()
 
@@ -205,17 +212,17 @@ func (b *S3Backend) Available(ctx context.Context) bool {
     return true
 }
 
-// Name returns the name of this backend
+// Name returns a unique identifier for this storage backend.
 func (b *S3Backend) Name() string {
 	return fmt.Sprintf("s3-%s", b.bucketName)
 }
 
-// LocationURI returns the URI of this backend
+// LocationURI returns the URI that identifies this storage backend.
 func (b *S3Backend) LocationURI() string {
 	return b.locationURI
 }
 
-// getObjectKey generates an S3 object key based on content ID and type
+// getObjectKey generates an S3 object key based on content ID and type.
 func (b *S3Backend) getObjectKey(id interfaces.ContentID, contentType interfaces.ContentType) string {
 	typePrefix := b.prefixes[contentType]
 	idStr := fmt.Sprintf("%x", id)
