@@ -35,6 +35,16 @@ file:///var/lib/registry/configs/
 file://./relative/path/
 ```
 
+**On-Chain**
+```
+onchain://0x1234567890abcdef1234567890abcdef12345678
+```
+
+**GitHub** (Read-Only)
+```
+github://owner/repo
+```
+
 ## Content Addressing
 
 Content is stored and retrieved using content addressing:
@@ -43,11 +53,23 @@ Content is stored and retrieved using content addressing:
 2. **Storage Path**: Determined by backend type and content type
 3. **Types**: `ConfigType` and `SecretType` are stored in separate namespaces
 
-## S3 Bucket Access
+## On-Chain Storage
 
-- **Reading**: S3 buckets are expected to be publicly readable
-- **Writing**: API keys only required for pushing content to S3
-- Objects are stored with `public-read` ACL by default
+The on-chain backend stores content directly in the Registry smart contract:
+
+- **Configurations**: Uses the `configs` mapping in the contract
+- **Secrets**: Uses the `encryptedSecrets` mapping in the contract
+- **Gas Cost**: Be mindful of gas costs when storing large content
+- **Size Limits**: Subject to contract's `MAX_BYTES_SIZE` limit (20KB by default)
+
+## GitHub Storage (Read-Only)
+
+The GitHub backend fetches content from public repositories using Git's blob objects:
+
+- **Direct Blob Access**: Uses ContentID directly as a Git blob SHA
+- **Maximum Simplicity**: No trees, no searching - just direct blob retrieval
+- **Perfect Git Integration**: Directly uses Git's content-addressed objects
+- **Efficiency**: Single API call fetches content by its identifier
 
 ## MultiStorageBackend
 
@@ -59,6 +81,9 @@ The `MultiStorageBackend` aggregates multiple backends:
 
 ## Security Notes
 
-- S3 buckets should be configured for public read access
-- Write credentials should be protected and not embedded in URIs
-- Use IAM roles or environment variables for S3 credentials when possible
+- **On-Chain Storage**: All data is public and visible on the blockchain
+- **GitHub Blobs**: Create blob objects directly using `git hash-object -w <file>`
+- **Size Considerations**: 
+  - On-chain storage is expensive for large content
+  - GitHub has file size limits (typically 100MB)
+- **Token Protection**: Avoid embedding GitHub tokens in URI strings in production

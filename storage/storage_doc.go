@@ -6,6 +6,8 @@
 //   - File system storage for local development and testing
 //   - S3-compatible storage for cloud deployments
 //   - IPFS storage for decentralized content
+//   - On-chain storage using Ethereum smart contracts
+//   - GitHub storage using repository content
 //
 // # Storage URI Format
 //
@@ -18,6 +20,8 @@
 //   - file:///var/lib/registry/configs/
 //   - s3://bucket-name/prefix/?region=us-west-2
 //   - ipfs://ipfs.example.com:5001/
+//   - onchain://0x1234567890abcdef1234567890abcdef12345678
+//   - github://owner/repo
 //
 // # Content Addressing
 //
@@ -40,85 +44,67 @@
 //	    SecretType
 //	)
 //
-// Error definitions:
+// # On-Chain Storage
 //
-//	var (
-//	    // ErrContentNotFound is returned when requested content cannot be found
-//	    ErrContentNotFound = errors.New("content not found")
-//	    // ErrBackendUnavailable is returned when a backend is not accessible
-//	    ErrBackendUnavailable = errors.New("storage backend unavailable")
-//	    // ErrInvalidLocationURI is returned when a location URI is invalid
-//	    ErrInvalidLocationURI = errors.New("invalid storage location URI")
-//	)
+// The OnchainBackend stores content directly in the Registry smart contract using:
 //
-// The StorageBackend interface represents any system that can store and retrieve data:
+//   - mapping(bytes32 => bytes) configs - For configuration data
+//   - mapping(bytes32 => bytes) encryptedSecrets - For encrypted secrets
 //
-//	type StorageBackend interface {
-//	    // Fetch retrieves data by its identifier and type
-//	    Fetch(ctx context.Context, id ContentID, contentType ContentType) ([]byte, error)
+// URI format: onchain://<contract-address>
 //
-//	    // Store saves data of the specified type and returns its identifier
-//	    Store(ctx context.Context, data []byte, contentType ContentType) (ContentID, error)
+// # GitHub Storage (Read-Only)
 //
-//	    // Available checks if this backend is currently accessible
-//	    Available(ctx context.Context) bool
+// The GitHubBackend fetches content directly from Git blobs in a GitHub repository:
 //
-//	    // Name returns the backend type (for logging/monitoring)
-//	    Name() string
+//   - Uses ContentID directly as a Git blob SHA
+//   - Directly accesses blob objects with no intermediate objects
+//   - Maximum simplicity with minimal API calls
+//   - Perfect integration with Git's object model
 //
-//	    // LocationURI returns the URI of this backend
-//	    LocationURI() string
-//	}
+// URI format: github://owner/repo
 //
-// The StorageBackendFactory interface creates storage backends from URI strings:
+// Creating content in this model:
 //
-//	type StorageBackendFactory interface {
-//	    // StorageBackendFor creates a storage backend from a location URI
-//	    StorageBackendFor(locationURI StorageBackendLocation) (StorageBackend, error)
+//  1. Create a blob with your content using git hash-object
+//  2. The blob SHA becomes your ContentID for retrieval
 //
-//	    // CreateMultiBackend creates a multi-storage backend from a list of location URIs
-//	    CreateMultiBackend(locationURIs []StorageBackendLocation) (StorageBackend, error)
-//	}
+// Example Git commands:
 //
-// # Multi-Backend Storage
+//	# Create a blob and get its SHA (which becomes your ContentID)
+//	blob_sha=$(git hash-object -w --stdin < myfile.json)
 //
-// The MultiStorageBackend aggregates multiple backends for redundancy:
+//	# Push to a remote repository
+//	# (This step requires adding the blob to the Git tree and creating a commit)
 //
-//   - Store: Attempts to store in all available backends
-//   - Fetch: Tries each backend until content is found
-//   - Available: Returns true if any backend is available
+// # Usage Example for On-Chain Storage
 //
-// # Usage Example
+//	// Create a storage factory with registry factory
+//	factory := storage.NewStorageBackendFactory(logger, registryFactory)
 //
-//	// Create a storage factory
-//	factory := storage.NewStorageBackendFactory(logger)
-//
-//	// Create a file backend
-//	fileBackend, err := factory.StorageBackendFor("file:///var/lib/registry/")
+//	// Create an on-chain backend
+//	onchainBackend, err := factory.StorageBackendFor("onchain://0x1234567890abcdef1234567890abcdef12345678")
 //	if err != nil {
-//	    log.Fatalf("Failed to create file backend: %v", err)
+//	    log.Fatalf("Failed to create on-chain backend: %v", err)
 //	}
 //
-//	// Store content
-//	data := []byte("example configuration data")
-//	id, err := fileBackend.Store(context.Background(), data, interfaces.ConfigType)
+// # Usage Example for GitHub Storage (Read-Only)
+//
+//	// Create a GitHub backend
+//	githubBackend, err := factory.StorageBackendFor("github://myorg/myrepo")
 //	if err != nil {
-//	    log.Fatalf("Failed to store config: %v", err)
+//	    log.Fatalf("Failed to create GitHub backend: %v", err)
 //	}
 //
-//	// Retrieve content
-//	retrievedData, err := fileBackend.Fetch(context.Background(), id, interfaces.ConfigType)
-//	if err != nil {
-//	    log.Fatalf("Failed to fetch config: %v", err)
-//	}
+//	// The ContentID is a Git tree SHA that contains exactly one blob
 //
 // # Multi-Backend Example
 //
-//	// Create a multi-backend from multiple locations
+//	// Create a multi-backend from multiple locations including the new backends
 //	locations := []interfaces.StorageBackendLocation{
 //	    "file:///var/lib/registry/",
-//	    "s3://my-bucket/registry/?region=us-west-2",
-//	    "ipfs://localhost:5001/",
+//	    "onchain://0x1234567890abcdef1234567890abcdef12345678",
+//	    "github://myorg/myrepo/main"
 //	}
 //	multiBackend, err := factory.CreateMultiBackend(locations)
 package storage
