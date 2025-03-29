@@ -106,4 +106,5 @@ doc: ## Generate godoc for all files
 	go doc -all storage > doc_storage.md
 	go doc -all registry > doc_registry.md
 	go doc -all kms > doc_kms.md
+	go doc -all httpserver > doc_httpserver.md
 	go doc -all bindings/registry > doc_registry_bindings.md

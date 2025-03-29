@@ -16,19 +16,43 @@ import (
 	"go.uber.org/zap"
 )
 
+// HTTPServerConfig contains all configuration parameters for the HTTP server.
 type HTTPServerConfig struct {
-	ListenAddr  string
-	MetricsAddr string
-	EnablePprof bool
-	Log         *slog.Logger
-	ZapLogger   *zap.Logger // Added to support our handler
+	// ListenAddr is the address and port the HTTP server will listen on.
+	ListenAddr string
 
-	DrainDuration            time.Duration
+	// MetricsAddr is the address and port for the metrics server.
+	// If empty, metrics server will not be started.
+	MetricsAddr string
+
+	// EnablePprof enables the pprof debugging API when true.
+	EnablePprof bool
+
+	// Log is the structured logger for server operations.
+	Log *slog.Logger
+
+	// ZapLogger supports legacy logging integration.
+	ZapLogger *zap.Logger
+
+	// DrainDuration is the time to wait after marking server not ready
+	// before shutting down, allowing load balancers to detect the change.
+	DrainDuration time.Duration
+
+	// GracefulShutdownDuration is the maximum time to wait for in-flight
+	// requests to complete during shutdown.
 	GracefulShutdownDuration time.Duration
-	ReadTimeout              time.Duration
-	WriteTimeout             time.Duration
+
+	// ReadTimeout is the maximum duration for reading the entire request,
+	// including the body.
+	ReadTimeout time.Duration
+
+	// WriteTimeout is the maximum duration before timing out writes of
+	// the response.
+	WriteTimeout time.Duration
 }
 
+// Server represents the HTTP server for the TEE registry service.
+// It handles routing, request dispatch, and server lifecycle management.
 type Server struct {
 	cfg     *HTTPServerConfig
 	isReady atomic.Bool
@@ -37,9 +61,18 @@ type Server struct {
 
 	srv        *http.Server
 	metricsSrv *metrics.MetricsServer
-	handler    *Handler // Added to store our handler
+	handler    *Handler
 }
 
+// New creates a new HTTP server with the specified configuration and handler.
+//
+// Parameters:
+//   - cfg: Server configuration
+//   - handler: Request handler that processes application logic
+//
+// Returns:
+//   - Configured server instance
+//   - Error if server creation fails
 func New(cfg *HTTPServerConfig, handler *Handler) (srv *Server, err error) {
 	metricsSrv, err := metrics.New(common.PackageName, cfg.MetricsAddr)
 	if err != nil {
@@ -66,11 +99,12 @@ func New(cfg *HTTPServerConfig, handler *Handler) (srv *Server, err error) {
 	return srv, nil
 }
 
-// Update to getRouter() method in server.go
+// getRouter creates and configures the HTTP router with all endpoints.
+// It sets up routes for registration, app metadata, and health checks.
 func (srv *Server) getRouter() http.Handler {
 	mux := chi.NewRouter()
 
-	// Updated routes with contract address in URL path
+	// API endpoints with contract address in URL path
 	mux.With(srv.httpLogger).Post("/api/attested/register/{contract_address}", srv.handleRegister)
 	mux.With(srv.httpLogger).Get("/api/public/app_metadata/{contract_address}", srv.handleAppMetadata)
 
@@ -87,25 +121,32 @@ func (srv *Server) getRouter() http.Handler {
 	return mux
 }
 
+// httpLogger is a middleware that logs HTTP requests using structured logging.
+// It captures request method, path, status code, and timing information.
 func (srv *Server) httpLogger(next http.Handler) http.Handler {
 	return httplogger.LoggingMiddlewareSlog(srv.log, next)
 }
 
-// Handlers that delegate to the improved Handler implementation
+// handleRegister delegates TEE instance registration requests to the Handler.
 func (srv *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	srv.handler.HandleRegister(w, r)
 }
 
+// handleAppMetadata delegates application metadata requests to the Handler.
 func (srv *Server) handleAppMetadata(w http.ResponseWriter, r *http.Request) {
 	srv.handler.HandleAppMetadata(w, r)
 }
 
+// handleLivenessCheck provides a simple health check to verify the server is running.
+// It always returns HTTP 200 with a JSON response indicating the server is alive.
 func (srv *Server) handleLivenessCheck(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status":"alive"}`))
 }
 
+// handleReadinessCheck verifies if the server is ready to accept requests.
+// It returns HTTP 200 if ready or HTTP 503 if draining or shutting down.
 func (srv *Server) handleReadinessCheck(w http.ResponseWriter, r *http.Request) {
 	if !srv.isReady.Load() {
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -118,6 +159,8 @@ func (srv *Server) handleReadinessCheck(w http.ResponseWriter, r *http.Request) 
 	w.Write([]byte(`{"status":"ready"}`))
 }
 
+// handleDrain marks the server as not ready and initiates graceful shutdown.
+// This allows load balancers to stop sending new requests before shutdown.
 func (srv *Server) handleDrain(w http.ResponseWriter, r *http.Request) {
 	if !srv.isReady.Swap(false) {
 		w.Header().Set("Content-Type", "application/json")
@@ -128,7 +171,7 @@ func (srv *Server) handleDrain(w http.ResponseWriter, r *http.Request) {
 	
 	srv.log.Info("Server marked as not ready")
 	
-	// UPDATED: Use a goroutine to avoid blocking the request handler
+	// Use a goroutine to avoid blocking the request handler
 	go func() {
 		// Wait for the drain duration to allow load balancers to detect the change
 		time.Sleep(srv.cfg.DrainDuration)
@@ -140,6 +183,8 @@ func (srv *Server) handleDrain(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"status":"draining"}`))
 }
 
+// handleUndrain marks the server as ready to accept new requests.
+// This can be used to cancel a drain operation before shutdown.
 func (srv *Server) handleUndrain(w http.ResponseWriter, r *http.Request) {
 	if srv.isReady.Swap(true) {
 		w.Header().Set("Content-Type", "application/json")
@@ -155,19 +200,21 @@ func (srv *Server) handleUndrain(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"status":"ready"}`))
 }
 
+// RunInBackground starts the HTTP and metrics servers in separate goroutines.
+// It doesn't block the calling goroutine, allowing concurrent operations.
 func (srv *Server) RunInBackground() {
-	// metrics
+	// Start metrics server if configured
 	if srv.cfg.MetricsAddr != "" {
 		go func() {
 			srv.log.With("metricsAddress", srv.cfg.MetricsAddr).Info("Starting metrics server")
 			err := srv.metricsSrv.ListenAndServe()
 			if err != nil && !errors.Is(err, http.ErrServerClosed) {
-				srv.log.Error("HTTP server failed", "err", err)
+				srv.log.Error("Metrics server failed", "err", err)
 			}
 		}()
 	}
 
-	// api
+	// Start API server
 	go func() {
 		srv.log.Info("Starting HTTP server", "listenAddress", srv.cfg.ListenAddr)
 		if err := srv.srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -176,8 +223,10 @@ func (srv *Server) RunInBackground() {
 	}()
 }
 
+// Shutdown gracefully stops the HTTP and metrics servers.
+// It waits for in-flight requests to complete up to the configured timeout.
 func (srv *Server) Shutdown() {
-	// api
+	// Shutdown API server
 	ctx, cancel := context.WithTimeout(context.Background(), srv.cfg.GracefulShutdownDuration)
 	defer cancel()
 	if err := srv.srv.Shutdown(ctx); err != nil {
@@ -186,7 +235,7 @@ func (srv *Server) Shutdown() {
 		srv.log.Info("HTTP server gracefully stopped")
 	}
 
-	// metrics
+	// Shutdown metrics server if started
 	if len(srv.cfg.MetricsAddr) != 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), srv.cfg.GracefulShutdownDuration)
 		defer cancel()

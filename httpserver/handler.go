@@ -15,28 +15,44 @@ import (
 	"github.com/ruteri/poc-tee-registry/interfaces"
 )
 
+// Header constants used in HTTP requests and responses.
 const (
+	// AttestationTypeHeader specifies the TEE attestation mechanism used.
+	// Supported values: "azure-tdx", "qemu-tdx"
 	AttestationTypeHeader = "X-Flashbots-Attestation-Type"
+	
+	// MeasurementHeader contains a JSON-encoded map of measurement values.
+	// Format: {"0":"00", "1":"01", ...} mapping register index to hex value.
 	MeasurementHeader     = "X-Flashbots-Measurement"
+	
+	// ContractAddrHeader specifies the contract address (alternative to URL path parameter).
 	ContractAddrHeader    = "X-Flashbots-Contract-Address"
 	
-	azureTDX  = "azure-tdx"
-	qemuTDX   = "qemu-tdx" // Any DCAP
+	// Supported attestation types
+	azureTDX  = "azure-tdx" // Azure confidential computing with TDX
+	qemuTDX   = "qemu-tdx"  // Any DCAP-compatible TDX implementation
 	
-	maxBodySize = 1024 * 1024 // 1MB request body size limit
+	// maxBodySize is the maximum allowed request body size (1MB).
+	maxBodySize = 1024 * 1024
 )
 
-// RequestError provides structured error information for HTTP responses
+// RequestError provides structured error information for HTTP responses.
+// It includes both an HTTP status code and the underlying error.
 type RequestError struct {
+	// StatusCode is the HTTP status code to return.
 	StatusCode int
-	Err        error
+	
+	// Err is the underlying error.
+	Err error
 }
 
+// Error returns the error message from the underlying error.
 func (e *RequestError) Error() string {
 	return e.Err.Error()
 }
 
-// Handler handles HTTP requests for the registry service
+// Handler processes HTTP requests for the TEE registry service.
+// It integrates with the KMS, storage system, and on-chain registry.
 type Handler struct {
 	kms             interfaces.KMS
 	storageFactory  interfaces.StorageBackendFactory
@@ -44,7 +60,15 @@ type Handler struct {
 	log             *slog.Logger
 }
 
-// NewHandler creates a new request handler
+// NewHandler creates a new HTTP request handler with the specified dependencies.
+//
+// Parameters:
+//   - kms: Key Management Service for cryptographic operations
+//   - storageFactory: Factory for creating storage backends
+//   - registryFactory: Factory for creating registry clients
+//   - log: Structured logger for operational insights
+//
+// Returns a configured Handler instance.
 func NewHandler(kms interfaces.KMS, storageFactory interfaces.StorageBackendFactory, registryFactory interfaces.RegistryFactory, log *slog.Logger) *Handler {
 	return &Handler{
 		kms:             kms,
@@ -54,8 +78,21 @@ func NewHandler(kms interfaces.KMS, storageFactory interfaces.StorageBackendFact
 	}
 }
 
-// HandleRegister handles HTTP requests for TEE instance registration
-// URL format: /api/attested/register/{contract_address}
+// HandleRegister processes TEE instance registration requests.
+// It validates attestation evidence, verifies the instance's identity,
+// and provides cryptographic materials and configuration if authorized.
+//
+// URL format: POST /api/attested/register/{contract_address}
+// Required headers:
+//   - X-Flashbots-Attestation-Type: Type of attestation (azureTDX/qemuTDX)
+//   - X-Flashbots-Measurement: JSON-encoded measurement values
+//
+// Request body: TLS Certificate Signing Request (CSR) in PEM format
+//
+// Response: JSON containing:
+//   - app_privkey: Private key for the application
+//   - tls_cert: Signed TLS certificate
+//   - config: Instance configuration with resolved references
 func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 	// Parse attestation type from header
 	attestationType := r.Header.Get(AttestationTypeHeader)
@@ -143,8 +180,15 @@ func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// HandleAppMetadata handles HTTP requests for application metadata
-// URL format: /api/public/app_metadata/{contract_address}
+// HandleAppMetadata retrieves application metadata for a specified contract address.
+// It provides public cryptographic materials like CA certificate and public key.
+//
+// URL format: GET /api/public/app_metadata/{contract_address}
+//
+// Response: JSON containing:
+//   - ca_cert: CA certificate in PEM format
+//   - app_pubkey: Application public key in PEM format
+//   - attestation: Attestation data
 func (h *Handler) HandleAppMetadata(w http.ResponseWriter, r *http.Request) {
 	contractAddrHex := r.PathValue("contract_address")
 
@@ -183,7 +227,17 @@ func (h *Handler) HandleAppMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// attestationToIdentity converts attestation data to an identity hash
+// attestationToIdentity converts attestation data to an identity hash.
+// It uses the appropriate computation method based on attestation type.
+//
+// Parameters:
+//   - attestationType: The type of attestation (azureTDX or qemuTDX)
+//   - measurements: Map of measurement registers and their values
+//   - registry: Registry client for computing identity hashes
+//
+// Returns:
+//   - The computed identity hash
+//   - Error if attestation type is unsupported or computation fails
 func attestationToIdentity(attestationType string, measurements map[string]string, registry interfaces.OnchainRegistry) ([32]byte, error) {
 	switch attestationType {
 	case azureTDX:
@@ -201,7 +255,21 @@ func attestationToIdentity(attestationType string, measurements map[string]strin
 	}
 }
 
-// handleRegister processes instance registration requests
+// handleRegister processes TEE instance registration requests.
+// This is the core business logic implementation for HandleRegister.
+//
+// Parameters:
+//   - ctx: Context for the operation
+//   - attestationType: Type of attestation (azureTDX/qemuTDX)
+//   - measurements: Map of measurement registers and their values
+//   - contractAddress: Contract address for the application
+//   - csr: Certificate Signing Request in PEM format
+//
+// Returns:
+//   - Application private key
+//   - Signed TLS certificate
+//   - Instance configuration
+//   - Error if registration fails
 func (h *Handler) handleRegister(ctx context.Context, attestationType string, measurements map[string]string, contractAddress interfaces.ContractAddress, csr interfaces.TLSCSR) (interfaces.AppPrivkey, interfaces.TLSCert, interfaces.InstanceConfig, error) {
 	// Get the registry for this contract
 	registry, err := h.registryFactory.RegistryFor(contractAddress)
@@ -309,13 +377,23 @@ func (h *Handler) handleRegister(ctx context.Context, attestationType string, me
 	return appPrivkey, tlsCert, processedConfig, nil
 }
 
-// Reference holds a reference to a config or secret
+// Reference represents a reference to another content item in a configuration template.
+// It contains both the full reference string and the hash of the referenced content.
 type Reference struct {
-	fullRef string
-	hash    string
+	fullRef string // The full reference string (e.g., "__CONFIG_REF_<hash>")
+	hash    string // The hash part of the reference
 }
 
-// findReferences finds all occurrences of a pattern in the template
+// findReferences locates all pattern matches in a template string.
+// It returns a slice of Reference objects for each match found.
+//
+// Parameters:
+//   - templateStr: The template string to search
+//   - prefix: The reference prefix to look for (e.g., "__CONFIG_REF_")
+//
+// Returns:
+//   - Slice of found references
+//   - Error if regex compilation fails
 func findReferences(templateStr, prefix string) ([]Reference, error) {
 	pattern := prefix + `([0-9a-fA-F]{64})`
 	re, err := regexp.Compile(pattern)
@@ -338,7 +416,14 @@ func findReferences(templateStr, prefix string) ([]Reference, error) {
 	return refs, nil
 }
 
-// hexToHash converts a hex string to a [32]byte hash
+// hexToHash converts a hex string to a [32]byte hash.
+//
+// Parameters:
+//   - hexStr: Hex string representation of the hash
+//
+// Returns:
+//   - [32]byte hash value
+//   - Error if the hex string is invalid or wrong length
 func hexToHash(hexStr string) ([32]byte, error) {
 	var hash [32]byte
 	
@@ -355,12 +440,34 @@ func hexToHash(hexStr string) ([32]byte, error) {
 	return hash, nil
 }
 
-// replaceReference replaces a reference with its content
+// replaceReference replaces a reference string with new content.
+//
+// Parameters:
+//   - templateStr: Original template string
+//   - oldStr: String to replace (the reference)
+//   - newStr: New content to insert
+//
+// Returns:
+//   - Updated string with replacement
 func replaceReference(templateStr, oldStr, newStr string) string {
-	return regexp.MustCompile(regexp.QuoteMeta(oldStr)).ReplaceAllString(templateStr, newStr)
+	return regexp.MustCompile(`["]*`+regexp.QuoteMeta(oldStr)+`["]*`).ReplaceAllString(templateStr, newStr)
 }
 
-// processConfigTemplate processes a config template by resolving all references
+// processConfigTemplate resolves all references in a configuration template.
+// It replaces config and secret references with their actual content.
+//
+// References have the form:
+//   - __CONFIG_REF_<hash> - Reference to another config
+//   - __SECRET_REF_<hash> - Reference to a secret
+//
+// Parameters:
+//   - ctx: Context for the operation
+//   - storage: Storage backend to fetch referenced content
+//   - configTemplate: Original template with references
+//
+// Returns:
+//   - Processed configuration with all references resolved
+//   - Error if reference resolution fails
 func (h *Handler) processConfigTemplate(ctx context.Context, storage interfaces.StorageBackend, configTemplate []byte) (interfaces.InstanceConfig, error) {
 	// Convert to string for easier processing
 	templateStr := string(configTemplate)
