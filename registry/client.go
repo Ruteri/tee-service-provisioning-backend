@@ -1,26 +1,28 @@
 package registry
 
 import (
-    "context"
-    "errors"
+	"context"
+	"errors"
 
-    "github.com/ethereum/go-ethereum/accounts/abi/bind"
-    "github.com/ethereum/go-ethereum/common"
-    "github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 
-    "github.com/ruteri/poc-tee-registry/bindings/registry"
-    "github.com/ruteri/poc-tee-registry/interfaces"
+	"github.com/ruteri/poc-tee-registry/bindings/registry"
+	"github.com/ruteri/poc-tee-registry/interfaces"
 )
 
 type OnchainRegistryClient struct {
     contract *registry.Registry
-    client   *ethclient.Client
+    client   bind.ContractBackend
+	backend  bind.DeployBackend
     address  common.Address
     auth     *bind.TransactOpts
 }
 
 // NewOnchainRegistryClient creates a new client for interacting with the Registry contract
-func NewOnchainRegistryClient(client *ethclient.Client, address common.Address) (*OnchainRegistryClient, error) {
+func NewOnchainRegistryClient(client bind.ContractBackend, backend bind.DeployBackend, address common.Address) (*OnchainRegistryClient, error) {
     contract, err := registry.NewRegistry(address, client)
     if err != nil {
         return nil, err
@@ -29,6 +31,7 @@ func NewOnchainRegistryClient(client *ethclient.Client, address common.Address) 
     return &OnchainRegistryClient{
         contract: contract,
         client:   client,
+		backend: backend,
         address:  address,
     }, nil
 }
@@ -107,33 +110,33 @@ func (c *OnchainRegistryClient) AllStorageBackends() ([]string, error) {
 }
 
 // AddStorageBackend adds a new storage backend
-func (c *OnchainRegistryClient) AddStorageBackend(locationURI string) error {
+func (c *OnchainRegistryClient) AddStorageBackend(locationURI string) (*types.Transaction, error) {
     if c.auth == nil {
-        return ErrNoTransactOpts
+        return nil, ErrNoTransactOpts
     }
 
-    _, err := c.contract.SetStorageBackend(c.auth, locationURI)
-    return err
+    tx, err := c.contract.SetStorageBackend(c.auth, locationURI)
+    return tx, err
 }
 
 // RemoveStorageBackend removes a storage backend
-func (c *OnchainRegistryClient) RemoveStorageBackend(locationURI string) error {
+func (c *OnchainRegistryClient) RemoveStorageBackend(locationURI string) (*types.Transaction, error) {
     if c.auth == nil {
-        return ErrNoTransactOpts
+        return nil, ErrNoTransactOpts
     }
 
-    _, err := c.contract.RemoveStorageBackend(c.auth, locationURI)
-    return err
+    tx, err := c.contract.RemoveStorageBackend(c.auth, locationURI)
+    return tx, err
 }
 
 // RegisterInstanceDomainName registers a new instance domain name
-func (c *OnchainRegistryClient) RegisterInstanceDomainName(domain string) error {
+func (c *OnchainRegistryClient) RegisterInstanceDomainName(domain string) (*types.Transaction, error) {
     if c.auth == nil {
-        return ErrNoTransactOpts
+        return nil, ErrNoTransactOpts
     }
 
-    _, err := c.contract.RegisterInstanceDomainName(c.auth, domain)
-    return err
+    tx, err := c.contract.RegisterInstanceDomainName(c.auth, domain)
+    return tx, err
 }
 
 // AllInstanceDomainNames retrieves all registered instance domain names
@@ -144,92 +147,64 @@ func (c *OnchainRegistryClient) AllInstanceDomainNames() ([]string, error) {
 }
 
 // AddConfig adds a new configuration and returns its hash
-func (c *OnchainRegistryClient) AddConfig(data []byte) ([32]byte, error) {
+func (c *OnchainRegistryClient) AddConfig(data []byte) ([32]byte, *types.Transaction, error) {
     if c.auth == nil {
-        return [32]byte{}, ErrNoTransactOpts
+        return [32]byte{}, nil, ErrNoTransactOpts
     }
 
     tx, err := c.contract.AddConfig(c.auth, data)
     if err != nil {
-        return [32]byte{}, err
+        return [32]byte{}, nil, err
     }
 
-    // Wait for transaction to be mined
-    receipt, err := bind.WaitMined(context.Background(), c.client, tx)
-    if err != nil {
-        return [32]byte{}, err
-    }
-
-    // Parse the events from the receipt logs
-    for _, log := range receipt.Logs {
-        event, err := c.contract.ParseConfigAdded(*log)
-        if err == nil && event != nil {
-            return event.ConfigHash, nil
-        }
-    }
-
-    return [32]byte{}, errors.New("config hash not found in transaction logs")
+	return crypto.Keccak256Hash(data), tx, nil
 }
 
 // AddSecret adds a new encrypted secret and returns its hash
-func (c *OnchainRegistryClient) AddSecret(data []byte) ([32]byte, error) {
+func (c *OnchainRegistryClient) AddSecret(data []byte) ([32]byte, *types.Transaction, error) {
     if c.auth == nil {
-        return [32]byte{}, ErrNoTransactOpts
+        return [32]byte{}, nil, ErrNoTransactOpts
     }
 
     tx, err := c.contract.AddSecret(c.auth, data)
     if err != nil {
-        return [32]byte{}, err
+        return [32]byte{}, nil, err
     }
 
-    // Wait for transaction to be mined
-    receipt, err := bind.WaitMined(context.Background(), c.client, tx)
-    if err != nil {
-        return [32]byte{}, err
-    }
-
-    // Parse the events from the receipt logs
-    for _, log := range receipt.Logs {
-        event, err := c.contract.ParseSecretAdded(*log)
-        if err == nil && event != nil {
-            return event.SecretHash, nil
-        }
-    }
-
-    return [32]byte{}, errors.New("secret hash not found in transaction logs")
+	return crypto.Keccak256Hash(data), tx, nil
 }
 
 // SetConfigForDCAP sets the configuration for a DCAP report
-func (c *OnchainRegistryClient) SetConfigForDCAP(report *interfaces.DCAPReport, configHash [32]byte) error {
+func (c *OnchainRegistryClient) SetConfigForDCAP(report *interfaces.DCAPReport, configHash [32]byte) (*types.Transaction, error) {
     if c.auth == nil {
-        return ErrNoTransactOpts
+        return nil, ErrNoTransactOpts
     }
 
     // The contract now expects an empty array of DCAPEvents as a second parameter
     emptyEventLog := []registry.RegistryDCAPEvent{}
     
-    _, err := c.contract.SetConfigForDCAP(c.auth, *report, emptyEventLog, configHash)
-    return err
+    tx, err := c.contract.SetConfigForDCAP(c.auth, *report, emptyEventLog, configHash)
+    return tx, err
 }
 
 // SetConfigForMAA sets the configuration for a MAA report
-func (c *OnchainRegistryClient) SetConfigForMAA(report *interfaces.MAAReport, configHash [32]byte) error {
+func (c *OnchainRegistryClient) SetConfigForMAA(report *interfaces.MAAReport, configHash [32]byte) (*types.Transaction, error) {
     if c.auth == nil {
-        return ErrNoTransactOpts
+        return nil, ErrNoTransactOpts
     }
 
-    _, err := c.contract.SetConfigForMAA(c.auth, *report, configHash)
-    return err
+    tx, err := c.contract.SetConfigForMAA(c.auth, *report, configHash)
+    return tx, err
 }
 
 // RemoveWhitelistedIdentity removes a whitelisted identity
-func (c *OnchainRegistryClient) RemoveWhitelistedIdentity(identity [32]byte) error {
+func (c *OnchainRegistryClient) RemoveWhitelistedIdentity(identity [32]byte) (*types.Transaction, error) {
     if c.auth == nil {
-        return ErrNoTransactOpts
+        return nil, ErrNoTransactOpts
     }
 
-    _, err := c.contract.RemoveWhitelistedIdentity(c.auth, identity)
-    return err
+    tx, err := c.contract.RemoveWhitelistedIdentity(c.auth, identity)
+    return tx, err
 }
 
 // Error definitions
@@ -238,13 +213,14 @@ var (
 )
 
 type RegistryFactory struct {
-	client *ethclient.Client
+	client bind.ContractBackend
+	backend bind.DeployBackend
 }
 
-func NewRegistryFactory(client *ethclient.Client) *RegistryFactory {
-	return &RegistryFactory{client: client}
+func NewRegistryFactory(client bind.ContractBackend, backend bind.DeployBackend) *RegistryFactory {
+	return &RegistryFactory{client: client, backend: backend}
 }
 
 func (f *RegistryFactory) RegistryFor(address interfaces.ContractAddress) (interfaces.OnchainRegistry, error) {
-	return NewOnchainRegistryClient(f.client, common.Address(address))
+	return NewOnchainRegistryClient(f.client, f.backend, common.Address(address))
 }

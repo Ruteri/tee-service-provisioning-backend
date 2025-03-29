@@ -105,7 +105,7 @@ func (b *FileBackend) Store(ctx context.Context, data []byte, contentType interf
 func (b *FileBackend) Available(ctx context.Context) bool {
 	_, err := os.Stat(b.baseDir)
 	if err != nil {
-		b.log.Debug("File backend unavailable", err)
+		b.log.Debug("File backend unavailable", "err", err)
 		return false
 	}
 	return true

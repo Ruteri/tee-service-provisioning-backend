@@ -3,11 +3,14 @@ package httpserver
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strings"
 
 	"github.com/ruteri/poc-tee-registry/interfaces"
 )
@@ -52,17 +55,132 @@ func NewHandler(kms interfaces.KMS, storageFactory interfaces.StorageBackendFact
 }
 
 // HandleRegister handles HTTP requests for TEE instance registration
+// URL format: /api/attested/register/{contract_address}
 func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
-	// Implementation will go here
-	w.WriteHeader(http.StatusNotImplemented)
-	w.Write([]byte(`{"error":"Not implemented yet"}`))
+	// Parse attestation type from header
+	attestationType := r.Header.Get(AttestationTypeHeader)
+	if attestationType == "" {
+		http.Error(w, "Missing attestation type header", http.StatusBadRequest)
+		return
+	}
+
+	// Parse measurements from header
+	measurementsJSON := r.Header.Get(MeasurementHeader)
+	if measurementsJSON == "" {
+		http.Error(w, "Missing measurements header", http.StatusBadRequest)
+		return
+	}
+
+	// Parse measurements JSON to map
+	var measurements map[string]string
+	if err := json.Unmarshal([]byte(measurementsJSON), &measurements); err != nil {
+		h.log.Error("Failed to parse measurements JSON", "err", err, "json", measurementsJSON)
+		http.Error(w, "Invalid measurements format", http.StatusBadRequest)
+		return
+	}
+
+	contractAddrHex := r.PathValue("contract_address")
+	if contractAddrHex == "" {
+		http.Error(w, "Missing contract address in URL", http.StatusBadRequest)
+		return
+	}
+
+	// Parse contract address from hex
+	contractAddrBytes, err := hex.DecodeString(contractAddrHex)
+	if err != nil || len(contractAddrBytes) != 20 {
+		h.log.Error("Invalid contract address", "err", err, "address", contractAddrHex)
+		http.Error(w, "Invalid contract address format", http.StatusBadRequest)
+		return
+	}
+
+	var contractAddr interfaces.ContractAddress
+	copy(contractAddr[:], contractAddrBytes)
+
+	// Read CSR from request body
+	csr, err := io.ReadAll(r.Body)
+	if err != nil {
+		h.log.Error("Failed to read request body", "err", err)
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+
+	if len(csr) == 0 {
+		http.Error(w, "Empty CSR in request body", http.StatusBadRequest)
+		return
+	}
+
+	// Process the registration
+	appPrivkey, tlsCert, instanceConfig, err := h.handleRegister(r.Context(), attestationType, measurements, contractAddr, csr)
+	if err != nil {
+		h.log.Error("Registration failed", "err", err,
+			"attestationType", attestationType,
+			"contractAddress", contractAddrHex)
+
+		// Return appropriate status code based on error type
+		if strings.Contains(err.Error(), "identity not whitelisted") {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+		} else if strings.Contains(err.Error(), "invalid") {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Prepare response
+	response := map[string]interface{}{
+		"app_privkey": string(appPrivkey),
+		"tls_cert":    string(tlsCert),
+		"config":      string(instanceConfig),
+	}
+
+	// Return JSON response
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		h.log.Error("Failed to encode response", "err", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 }
 
 // HandleAppMetadata handles HTTP requests for application metadata
+// URL format: /api/public/app_metadata/{contract_address}
 func (h *Handler) HandleAppMetadata(w http.ResponseWriter, r *http.Request) {
-	// Implementation will go here
-	w.WriteHeader(http.StatusNotImplemented)
-	w.Write([]byte(`{"error":"Not implemented yet"}`))
+	contractAddrHex := r.PathValue("contract_address")
+
+	// Parse contract address from hex
+	contractAddrBytes, err := hex.DecodeString(contractAddrHex)
+	if err != nil || len(contractAddrBytes) != 20 {
+		h.log.Error("Invalid contract address", "err", err, "address", contractAddrHex)
+		http.Error(w, "Invalid contract address format", http.StatusBadRequest)
+		return
+	}
+
+	var contractAddr interfaces.ContractAddress
+	copy(contractAddr[:], contractAddrBytes)
+
+	// Get PKI from KMS
+	pki, err := h.kms.GetPKI(contractAddr)
+	if err != nil {
+		h.log.Error("Failed to get PKI", "err", err, "contractAddress", contractAddrHex)
+		http.Error(w, fmt.Sprintf("Failed to get PKI: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Prepare response
+	response := map[string]interface{}{
+		"ca_cert":     string(pki.Ca),
+		"app_pubkey":  string(pki.Pubkey),
+		"attestation": string(pki.Attestation),
+	}
+
+	// Return JSON response
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		h.log.Error("Failed to encode response", "err", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 }
 
 // attestationToIdentity converts attestation data to an identity hash
@@ -88,21 +206,21 @@ func (h *Handler) handleRegister(ctx context.Context, attestationType string, me
 	// Get the registry for this contract
 	registry, err := h.registryFactory.RegistryFor(contractAddress)
 	if err != nil {
-		h.log.Error("Failed to get registry for contract", err, slog.String("contractAddress", string(contractAddress[:])))
+		h.log.Error("Failed to get registry for contract", "err", err, slog.String("contractAddress", string(contractAddress[:])))
 		return nil, nil, nil, fmt.Errorf("registry access error: %w", err)
 	}
 
 	// Calculate identity from attestation
 	identity, err := attestationToIdentity(attestationType, measurements, registry)
 	if err != nil {
-		h.log.Error("Failed to compute identity", err, slog.String("attestationType", attestationType))
+		h.log.Error("Failed to compute identity", "err", err, slog.String("attestationType", attestationType))
 		return nil, nil, nil, fmt.Errorf("identity computation error: %w", err)
 	}
 	
 	// Check if identity is whitelisted
 	isWhitelisted, err := registry.IsWhitelisted(identity)
 	if err != nil {
-		h.log.Error("Failed to check if identity is whitelisted", err, slog.String("identity", string(identity[:])))
+		h.log.Error("Failed to check if identity is whitelisted", "err", err, slog.String("identity", string(identity[:])))
 		return nil, nil, nil, fmt.Errorf("whitelist check error: %w", err)
 	}
 	
@@ -114,21 +232,21 @@ func (h *Handler) handleRegister(ctx context.Context, attestationType string, me
 	// Get application private key for this contract
 	appPrivkey, err := h.kms.GetAppPrivkey(contractAddress)
 	if err != nil {
-		h.log.Error("Failed to get app private key", err, slog.String("contractAddress", string(contractAddress[:])))
+		h.log.Error("Failed to get app private key", "err", err, slog.String("contractAddress", string(contractAddress[:])))
 		return nil, nil, nil, fmt.Errorf("key retrieval error: %w", err)
 	}
 
 	// Sign the CSR to create TLS certificate
 	tlsCert, err := h.kms.SignCSR(contractAddress, csr)
 	if err != nil {
-		h.log.Error("Failed to sign CSR", err, slog.String("contractAddress", string(contractAddress[:])))
+		h.log.Error("Failed to sign CSR", "err", err, slog.String("contractAddress", string(contractAddress[:])))
 		return nil, nil, nil, fmt.Errorf("certificate signing error: %w", err)
 	}
 
 	// Get config template hash for this identity
 	configTemplateHash, err := registry.IdentityConfigMap(identity)
 	if err != nil {
-		h.log.Error("Failed to get config template hash", err, slog.String("identity", string(identity[:])))
+		h.log.Error("Failed to get config template hash", "err", err, slog.String("identity", string(identity[:])))
 		return nil, nil, nil, fmt.Errorf("config lookup error: %w", err)
 	}
 	
@@ -140,7 +258,7 @@ func (h *Handler) handleRegister(ctx context.Context, attestationType string, me
 	// Get all storage backends from registry
 	backendLocations, err := registry.AllStorageBackends()
 	if err != nil {
-		h.log.Error("Failed to get storage backends", err)
+		h.log.Error("Failed to get storage backends", "err", err)
 		return nil, nil, nil, fmt.Errorf("storage backend retrieval error: %w", err)
 	}
 
@@ -150,7 +268,7 @@ func (h *Handler) handleRegister(ctx context.Context, attestationType string, me
 		// Convert string to StorageBackendLocation since that's what the factory expects
 		backend, err := h.storageFactory.StorageBackendFor(interfaces.StorageBackendLocation(location))
 		if err != nil {
-			h.log.Warn("Failed to create storage backend", err, slog.String("location", location))
+			h.log.Warn("Failed to create storage backend", "err", err, slog.String("location", location))
 			continue // Skip this backend if it fails
 		}
 		storageBackends = append(storageBackends, backend)
@@ -170,21 +288,21 @@ func (h *Handler) handleRegister(ctx context.Context, attestationType string, me
 	// Create multi-storage backend
 	multiStorage, err := h.storageFactory.CreateMultiBackend(locationURIs)
 	if err != nil {
-		h.log.Error("Failed to create multi-storage backend", err)
+		h.log.Error("Failed to create multi-storage backend", "err", err)
 		return nil, nil, nil, fmt.Errorf("multi-storage creation error: %w", err)
 	}
 
 	// Fetch config template
 	configTemplate, err := multiStorage.Fetch(ctx, configTemplateHash, interfaces.ConfigType)
 	if err != nil {
-		h.log.Error("Failed to fetch config template", err, slog.String("configHash", string(configTemplateHash[:])))
+		h.log.Error("Failed to fetch config template", "err", err, slog.String("configHash", string(configTemplateHash[:])))
 		return nil, nil, nil, fmt.Errorf("config template retrieval error: %w", err)
 	}
 
 	// Process the config template by resolving references to configs and secrets
 	processedConfig, err := h.processConfigTemplate(ctx, multiStorage, configTemplate)
 	if err != nil {
-		h.log.Error("Failed to process config template", err)
+		h.log.Error("Failed to process config template", "err", err)
 		return nil, nil, nil, fmt.Errorf("config processing error: %w", err)
 	}
 
@@ -269,7 +387,7 @@ func (h *Handler) processConfigTemplate(ctx context.Context, storage interfaces.
 
 		configData, err := storage.Fetch(ctx, configHash, interfaces.ConfigType)
 		if err != nil {
-			h.log.Warn("Failed to fetch config", err, slog.String("hash", ref.hash))
+			h.log.Warn("Failed to fetch config", "err", err, slog.String("hash", ref.hash))
 			continue
 		}
 
@@ -293,7 +411,7 @@ func (h *Handler) processConfigTemplate(ctx context.Context, storage interfaces.
 
 		secretData, err := storage.Fetch(ctx, secretHash, interfaces.SecretType)
 		if err != nil {
-			h.log.Warn("Failed to fetch secret", err, slog.String("hash", ref.hash))
+			h.log.Warn("Failed to fetch secret", "err", err, slog.String("hash", ref.hash))
 			continue
 		}
 

@@ -66,10 +66,15 @@ func New(cfg *HTTPServerConfig, handler *Handler) (srv *Server, err error) {
 	return srv, nil
 }
 
+// Update to getRouter() method in server.go
 func (srv *Server) getRouter() http.Handler {
 	mux := chi.NewRouter()
-	mux.With(srv.httpLogger).Post("/api/attested/register", srv.handleRegister) 
-	mux.With(srv.httpLogger).Get("/api/public/app_metadata", srv.handleAppMetadata) 
+
+	// Updated routes with contract address in URL path
+	mux.With(srv.httpLogger).Post("/api/attested/register/{contract_address}", srv.handleRegister)
+	mux.With(srv.httpLogger).Get("/api/public/app_metadata/{contract_address}", srv.handleAppMetadata)
+
+	// Health and diagnostic endpoints
 	mux.With(srv.httpLogger).Get("/livez", srv.handleLivenessCheck)
 	mux.With(srv.httpLogger).Get("/readyz", srv.handleReadinessCheck)
 	mux.With(srv.httpLogger).Get("/drain", srv.handleDrain)

@@ -118,7 +118,7 @@ func main() {
 				return err
 			}
 
-			registryFactory := registry.NewRegistryFactory(ethClient)
+			registryFactory := registry.NewRegistryFactory(ethClient, ethClient)
 			handler := httpserver.NewHandler(kmsImpl, storage.NewStorageBackendFactory(log), registryFactory, log)
 			srv, err := httpserver.New(cfg, handler)
 			if err != nil {

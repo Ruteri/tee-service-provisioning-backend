@@ -79,7 +79,7 @@ func (b *IPFSBackend) Fetch(ctx context.Context, id interfaces.ContentID, conten
         b.log.Error("Failed to fetch data from IPFS",
             slog.String("path", path),
             slog.String("content_id", contentIDStr),
-            err,
+            "err", err,
             slog.Duration("duration", time.Since(start)))
         return nil, fmt.Errorf("failed to fetch data from IPFS: %w", err)
     }
@@ -91,7 +91,7 @@ func (b *IPFSBackend) Fetch(ctx context.Context, id interfaces.ContentID, conten
         b.log.Error("Failed to read data from IPFS",
             slog.String("path", path),
             slog.String("content_id", contentIDStr),
-            err,
+            "err", err,
             slog.Duration("duration", time.Since(start)))
         return nil, fmt.Errorf("failed to read data from IPFS: %w", err)
     }

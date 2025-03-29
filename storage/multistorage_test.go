@@ -3,12 +3,14 @@ package storage
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
+	"log/slog"
 	"testing"
 
 	"github.com/ruteri/poc-tee-registry/interfaces"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"go.uber.org/zap"
 )
 
 // MockStorageBackend implements interfaces.StorageBackend for testing
@@ -17,7 +19,7 @@ type MockStorageBackend struct {
 	name string
 }
 
-func (m *MockStorageBackend) Fetch(ctx context.Context, id [32]byte, contentType interfaces.ContentType) ([]byte, error) {
+func (m *MockStorageBackend) Fetch(ctx context.Context, id interfaces.ContentID, contentType interfaces.ContentType) ([]byte, error) {
 	args := m.Called(ctx, id, contentType)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -25,9 +27,9 @@ func (m *MockStorageBackend) Fetch(ctx context.Context, id [32]byte, contentType
 	return args.Get(0).([]byte), args.Error(1)
 }
 
-func (m *MockStorageBackend) Store(ctx context.Context, data []byte, contentType interfaces.ContentType) ([32]byte, error) {
+func (m *MockStorageBackend) Store(ctx context.Context, data []byte, contentType interfaces.ContentType) (interfaces.ContentID, error) {
 	args := m.Called(ctx, data, contentType)
-	return args.Get(0).([32]byte), args.Error(1)
+	return args.Get(0).(interfaces.ContentID), args.Error(1)
 }
 
 func (m *MockStorageBackend) Available(ctx context.Context) bool {
@@ -37,6 +39,10 @@ func (m *MockStorageBackend) Available(ctx context.Context) bool {
 
 func (m *MockStorageBackend) Name() string {
 	return m.name
+}
+
+func (m *MockStorageBackend) LocationURI() string {
+	return "mock:"
 }
 
 func TestMultiStorageBackend_Available(t *testing.T) {
@@ -73,13 +79,13 @@ func TestMultiStorageBackend_Available(t *testing.T) {
 			// Create mock backends
 			var backends []interfaces.StorageBackend
 			for i, available := range tt.backends {
-				mock := &MockStorageBackend{name: "mock-" + string('A'+i)}
-				mock.On("Available", mock.Anything).Return(available)
-				backends = append(backends, mock)
+				mockStorage := &MockStorageBackend{name: fmt.Sprintf("mock-A%x", i)}
+				mockStorage.On("Available", mock.Anything).Return(available).Maybe()
+				backends = append(backends, mockStorage)
 			}
 
 			// Create multi-storage backend
-			logger, _ := zap.NewDevelopment()
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 			multi := NewMultiStorageBackend(backends, logger)
 
 			// Check availability
@@ -88,8 +94,8 @@ func TestMultiStorageBackend_Available(t *testing.T) {
 
 			// Verify all mocks were called
 			for _, backend := range backends {
-				mock := backend.(*MockStorageBackend)
-				mock.AssertExpectations(t)
+				mockStorage := backend.(*MockStorageBackend)
+				mockStorage.AssertExpectations(t)
 			}
 		})
 	}
@@ -97,7 +103,7 @@ func TestMultiStorageBackend_Available(t *testing.T) {
 
 func TestMultiStorageBackend_Fetch(t *testing.T) {
 	// Test data
-	testID := [32]byte{1, 2, 3, 4}
+	testID := interfaces.ContentID([32]byte{1, 2, 3, 4})
 	testData := []byte("test data")
 	testErr := errors.New("test error")
 
@@ -177,7 +183,7 @@ func TestMultiStorageBackend_Fetch(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup
 			backends := tt.setupMocks()
-			logger, _ := zap.NewDevelopment()
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 			multi := NewMultiStorageBackend(backends, logger)
 
 			// Execute
@@ -202,7 +208,7 @@ func TestMultiStorageBackend_Fetch(t *testing.T) {
 
 func TestMultiStorageBackend_Store(t *testing.T) {
 	// Test data
-	testID := [32]byte{1, 2, 3, 4}
+	testID := interfaces.ContentID([32]byte{1, 2, 3, 4})
 	testData := []byte("test data")
 	testErr := errors.New("test error")
 
@@ -210,7 +216,7 @@ func TestMultiStorageBackend_Store(t *testing.T) {
 	tests := []struct {
 		name          string
 		setupMocks    func() []interfaces.StorageBackend
-		expectedID    [32]byte
+		expectedID    interfaces.ContentID
 		expectedError bool
 	}{
 		{
@@ -238,7 +244,7 @@ func TestMultiStorageBackend_Store(t *testing.T) {
 
 				mock2 := &MockStorageBackend{name: "mock-B"}
 				mock2.On("Available", mock.Anything).Return(true)
-				mock2.On("Store", mock.Anything, testData, interfaces.ConfigType).Return([32]byte{}, testErr)
+				mock2.On("Store", mock.Anything, testData, interfaces.ConfigType).Return(interfaces.ContentID{}, testErr)
 
 				return []interfaces.StorageBackend{mock1, mock2}
 			},
@@ -250,15 +256,15 @@ func TestMultiStorageBackend_Store(t *testing.T) {
 			setupMocks: func() []interfaces.StorageBackend {
 				mock1 := &MockStorageBackend{name: "mock-A"}
 				mock1.On("Available", mock.Anything).Return(true)
-				mock1.On("Store", mock.Anything, testData, interfaces.ConfigType).Return([32]byte{}, testErr)
+				mock1.On("Store", mock.Anything, testData, interfaces.ConfigType).Return(interfaces.ContentID{}, testErr)
 
 				mock2 := &MockStorageBackend{name: "mock-B"}
 				mock2.On("Available", mock.Anything).Return(true)
-				mock2.On("Store", mock.Anything, testData, interfaces.ConfigType).Return([32]byte{}, testErr)
+				mock2.On("Store", mock.Anything, testData, interfaces.ConfigType).Return(interfaces.ContentID{}, testErr)
 
 				return []interfaces.StorageBackend{mock1, mock2}
 			},
-			expectedID:    [32]byte{},
+			expectedID:    interfaces.ContentID{},
 			expectedError: true,
 		},
 		{
@@ -283,7 +289,7 @@ func TestMultiStorageBackend_Store(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Setup
 			backends := tt.setupMocks()
-			logger, _ := zap.NewDevelopment()
+			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 			multi := NewMultiStorageBackend(backends, logger)
 
 			// Execute

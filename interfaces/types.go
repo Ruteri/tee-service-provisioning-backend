@@ -1,6 +1,7 @@
 package interfaces
 
 import (
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ruteri/poc-tee-registry/bindings/registry"
 )
 
@@ -52,22 +53,22 @@ type OnchainRegistry interface {
     GetConfig(configHash [32]byte) ([]byte, error)
     GetSecret(secretHash [32]byte) ([]byte, error)
     IdentityConfigMap(identity [32]byte) ([32]byte, error)
-    AddConfig(data []byte) ([32]byte, error)
-    AddSecret(data []byte) ([32]byte, error)
-    SetConfigForDCAP(report *DCAPReport, configHash [32]byte) error
-    SetConfigForMAA(report *MAAReport, configHash [32]byte) error // Added for MAA support
+    AddConfig(data []byte) ([32]byte, *types.Transaction, error)
+    AddSecret(data []byte) ([32]byte, *types.Transaction, error)
+    SetConfigForDCAP(report *DCAPReport, configHash [32]byte) (*types.Transaction, error)
+    SetConfigForMAA(report *MAAReport, configHash [32]byte) (*types.Transaction, error) // Added for MAA support
     
     // Storage backend management
     AllStorageBackends() ([]string, error) // Returns string URIs, matches contract name
-    AddStorageBackend(locationURI string) error // Takes string URI directly
-    RemoveStorageBackend(locationURI string) error // Takes string URI directly
+    AddStorageBackend(locationURI string) (*types.Transaction, error) // Takes string URI directly
+    RemoveStorageBackend(locationURI string) (*types.Transaction, error) // Takes string URI directly
     
     // Domain name management
     AllInstanceDomainNames() ([]string, error) // Changed return type to match contract
-    RegisterInstanceDomainName(domain string) error
+    RegisterInstanceDomainName(domain string) (*types.Transaction, error)
     
     // Identity management
-    RemoveWhitelistedIdentity(identity [32]byte) error
+    RemoveWhitelistedIdentity(identity [32]byte) (*types.Transaction, error)
 }
 
 type RegistryFactory interface {

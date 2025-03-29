@@ -256,7 +256,6 @@ contract Registry is AccessControl, Ownable, ReentrancyGuard {
 
 	function setConfigForIdentity(bytes32 identity, bytes32 configHash)
 		private
-        nonReentrant
 	{
         // Add to array only if not already added
         if (!whitelistedIdentities[identity]) {

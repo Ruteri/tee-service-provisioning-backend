@@ -55,7 +55,7 @@ func (m *MultiStorageBackend) Fetch(ctx context.Context, id interfaces.ContentID
         m.log.Debug("Failed to fetch from backend",
             slog.String("backend_name", backend.Name()),
             slog.String("content_id", contentIDStr),
-            err)
+            "err", err)
     }
 
     m.log.Error("All backends failed to fetch content",
@@ -100,7 +100,7 @@ func (m *MultiStorageBackend) Store(ctx context.Context, data []byte, contentTyp
             errs = append(errs, fmt.Errorf("%s: %w", backend.Name(), err))
             m.log.Debug("Failed to store to backend",
                 slog.String("backend_name", backend.Name()),
-                err)
+                "err", err)
         }
     }
 

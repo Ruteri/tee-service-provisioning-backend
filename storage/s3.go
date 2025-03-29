@@ -126,7 +126,7 @@ func (b *S3Backend) Fetch(ctx context.Context, id interfaces.ContentID, contentT
             slog.String("content_id", contentIDStr),
             slog.String("bucket", b.bucketName),
             slog.String("key", key),
-            err,
+            "err", err,
             slog.Duration("duration", time.Since(start)))
         return nil, fmt.Errorf("failed to get object from S3: %w", err)
     }
@@ -139,7 +139,7 @@ func (b *S3Backend) Fetch(ctx context.Context, id interfaces.ContentID, contentT
             slog.String("content_id", contentIDStr),
             slog.String("bucket", b.bucketName),
             slog.String("key", key),
-            err,
+            "err", err,
             slog.Duration("duration", time.Since(start)))
         return nil, fmt.Errorf("failed to read object body: %w", err)
     }
@@ -197,7 +197,7 @@ func (b *S3Backend) Available(ctx context.Context) bool {
     if err != nil {
         b.log.Warn("S3 backend unavailable",
             slog.String("bucket", b.bucketName),
-            err,
+            "err", err,
             slog.Duration("duration", time.Since(start)))
         return false
     }

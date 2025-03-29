@@ -50,7 +50,7 @@ func (sf *StorageBackendFactory) CreateMultiBackend(locationURIs []interfaces.St
 		backend, err := sf.StorageBackendFor(uri)
 		if err != nil {
 			sf.log.Warn("Failed to create storage backend",
-				err,
+				"err", err,
 				slog.String("locationURI", string(uri)))
 			continue
 		}
