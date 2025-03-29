@@ -17,13 +17,17 @@ import (
 	"github.com/ruteri/poc-tee-registry/interfaces"
 )
 
-// SimpleKMS provides a straightforward implementation of the KMS interface
+// SimpleKMS provides a straightforward implementation of the KMS interface.
+// It derives keys deterministically from a master key, making it suitable
+// for development and testing environments.
 type SimpleKMS struct {
 	masterKey []byte
 	mu        sync.RWMutex
 }
 
-// NewSimpleKMS creates a new instance of SimpleKMS
+// NewSimpleKMS creates a new instance of SimpleKMS with the provided master key.
+// The master key must be at least 32 bytes long for adequate security.
+// Returns an error if the master key is too short.
 func NewSimpleKMS(masterKey []byte) (*SimpleKMS, error) {
 	if len(masterKey) < 32 {
 		return nil, errors.New("master key must be at least 32 bytes")
@@ -32,7 +36,12 @@ func NewSimpleKMS(masterKey []byte) (*SimpleKMS, error) {
 	return &SimpleKMS{masterKey: masterKey}, nil
 }
 
-// GetPKI returns the CA certificate, app public key and attestation for a contract
+// GetPKI returns the CA certificate, app public key and attestation for a contract.
+// It derives these cryptographic materials deterministically from the contract address.
+// The returned AppPKI contains:
+//   - CA certificate in PEM format
+//   - Application public key in PEM format
+//   - Attestation data that can be verified by external parties
 func (k *SimpleKMS) GetPKI(contractAddr interfaces.ContractAddress) (interfaces.AppPKI, error) {
 	// Derive CA key from contract address
 	caKey, err := k.deriveKey(contractAddr, "ca")
@@ -69,7 +78,10 @@ func (k *SimpleKMS) GetPKI(contractAddr interfaces.ContractAddress) (interfaces.
 	return interfaces.AppPKI{certPEM, pubKeyPEM, attestation}, nil
 }
 
-// GetAppPrivkey returns the application private key
+// GetAppPrivkey returns the application private key for the specified contract address.
+// This key is derived deterministically from the master key and contract address.
+// The private key is returned in PEM format (PKCS#8).
+// This method assumes attestation and identity verification have already been performed.
 func (k *SimpleKMS) GetAppPrivkey(contractAddr interfaces.ContractAddress) (interfaces.AppPrivkey, error) {
 	appKey, err := k.deriveKey(contractAddr, "app")
 	if err != nil {
@@ -87,7 +99,14 @@ func (k *SimpleKMS) GetAppPrivkey(contractAddr interfaces.ContractAddress) (inte
 	}), nil
 }
 
-// SignCSR signs a certificate signing request
+// SignCSR signs a certificate signing request using the CA key for the specified contract.
+// It verifies the CSR signature before creating a certificate valid for 1 year.
+// The certificate includes:
+//   - Subject from the CSR
+//   - Key usage for digital signatures and key encipherment
+//   - Extended key usage for server and client authentication
+//   - DNS names and IP addresses from the CSR
+// The returned certificate is in PEM format.
 func (k *SimpleKMS) SignCSR(contractAddr interfaces.ContractAddress, csr interfaces.TLSCSR) (interfaces.TLSCert, error) {
 	// Parse CSR
 	block, _ := pem.Decode(csr)
@@ -158,7 +177,9 @@ func (k *SimpleKMS) SignCSR(contractAddr interfaces.ContractAddress, csr interfa
 	}), nil
 }
 
-// deriveKey derives a key from a contract address and purpose
+// deriveKey derives a key from a contract address and purpose (e.g., "ca" or "app").
+// It creates a deterministic seed by hashing the master key, contract address, and purpose.
+// The resulting key is an ECDSA key using the P-256 curve.
 func (k *SimpleKMS) deriveKey(contractAddr interfaces.ContractAddress, purpose string) (*ecdsa.PrivateKey, error) {
 	// Create deterministic seed
 	h := sha256.New()
@@ -182,7 +203,10 @@ func (k *SimpleKMS) deriveKey(contractAddr interfaces.ContractAddress, purpose s
 	return privateKey, nil
 }
 
-// createCACertificate creates a self-signed CA certificate
+// createCACertificate creates a self-signed CA certificate for the specified key and contract.
+// The certificate is valid for 10 years and is suitable for signing instance certificates.
+// It has key usage for certificate signing, CRL signing, and digital signatures.
+// The certificate is returned in PEM format.
 func createCACertificate(caKey *ecdsa.PrivateKey, contractAddr interfaces.ContractAddress) ([]byte, error) {
 	// Generate serial number
 	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))

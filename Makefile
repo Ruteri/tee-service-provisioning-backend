@@ -105,4 +105,5 @@ doc: ## Generate godoc for all files
 	go doc -all interfaces > interfaces.doc
 	go doc -all storage > storage.doc
 	go doc -all registry > registry.doc
+	go doc -all kms > kms.doc
 	go doc -all bindings/registry > registry_bindings.doc
