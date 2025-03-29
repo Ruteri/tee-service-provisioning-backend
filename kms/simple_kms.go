@@ -32,7 +32,7 @@ func NewSimpleKMS(masterKey []byte) (*SimpleKMS, error) {
 	if len(masterKey) < 32 {
 		return nil, errors.New("master key must be at least 32 bytes")
 	}
-	
+
 	return &SimpleKMS{masterKey: masterKey}, nil
 }
 
@@ -48,7 +48,7 @@ func (k *SimpleKMS) GetPKI(contractAddr interfaces.ContractAddress) (interfaces.
 	if err != nil {
 		return interfaces.AppPKI{}, err
 	}
-	
+
 	// Create a self-signed CA certificate
 	certPEM, err := createCACertificate(caKey, contractAddr)
 	if err != nil {
@@ -60,21 +60,21 @@ func (k *SimpleKMS) GetPKI(contractAddr interfaces.ContractAddress) (interfaces.
 	if err != nil {
 		return interfaces.AppPKI{}, err
 	}
-	
+
 	// Extract and encode public key
 	pubKeyBytes, err := x509.MarshalPKIXPublicKey(&appKey.PublicKey)
 	if err != nil {
 		return interfaces.AppPKI{}, fmt.Errorf("failed to marshal public key: %w", err)
 	}
-	
+
 	pubKeyPEM := pem.EncodeToMemory(&pem.Block{
 		Type:  "PUBLIC KEY",
 		Bytes: pubKeyBytes,
 	})
-	
+
 	// Simple attestation
 	attestation := []byte(fmt.Sprintf("Attestation for CA %x", contractAddr))
-	
+
 	return interfaces.AppPKI{certPEM, pubKeyPEM, attestation}, nil
 }
 
@@ -87,12 +87,12 @@ func (k *SimpleKMS) GetAppPrivkey(contractAddr interfaces.ContractAddress) (inte
 	if err != nil {
 		return nil, err
 	}
-	
+
 	privKeyBytes, err := x509.MarshalECPrivateKey(appKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal private key: %w", err)
 	}
-	
+
 	return pem.EncodeToMemory(&pem.Block{
 		Type:  "EC PRIVATE KEY",
 		Bytes: privKeyBytes,
@@ -106,6 +106,7 @@ func (k *SimpleKMS) GetAppPrivkey(contractAddr interfaces.ContractAddress) (inte
 //   - Key usage for digital signatures and key encipherment
 //   - Extended key usage for server and client authentication
 //   - DNS names and IP addresses from the CSR
+//
 // The returned certificate is in PEM format.
 func (k *SimpleKMS) SignCSR(contractAddr interfaces.ContractAddress, csr interfaces.TLSCSR) (interfaces.TLSCert, error) {
 	// Parse CSR
@@ -113,44 +114,44 @@ func (k *SimpleKMS) SignCSR(contractAddr interfaces.ContractAddress, csr interfa
 	if block == nil {
 		return nil, errors.New("failed to decode CSR")
 	}
-	
+
 	parsedCSR, err := x509.ParseCertificateRequest(block.Bytes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse CSR: %w", err)
 	}
-	
+
 	// Verify CSR signature
 	if err := parsedCSR.CheckSignature(); err != nil {
 		return nil, fmt.Errorf("CSR signature verification failed: %w", err)
 	}
-	
+
 	// Get CA key and certificate
 	caKey, err := k.deriveKey(contractAddr, "ca")
 	if err != nil {
 		return nil, err
 	}
-	
+
 	caCertPEM, err := createCACertificate(caKey, contractAddr)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	caBlock, _ := pem.Decode(caCertPEM)
 	if caBlock == nil {
 		return nil, errors.New("failed to decode CA certificate")
 	}
-	
+
 	caCert, err := x509.ParseCertificate(caBlock.Bytes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse CA certificate: %w", err)
 	}
-	
+
 	// Generate serial number
 	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate serial number: %w", err)
 	}
-	
+
 	// Create certificate template
 	template := x509.Certificate{
 		SerialNumber:          serialNumber,
@@ -163,13 +164,13 @@ func (k *SimpleKMS) SignCSR(contractAddr interfaces.ContractAddress, csr interfa
 		DNSNames:              parsedCSR.DNSNames,
 		IPAddresses:           parsedCSR.IPAddresses,
 	}
-	
+
 	// Create certificate
 	certDER, err := x509.CreateCertificate(rand.Reader, &template, caCert, parsedCSR.PublicKey, caKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create certificate: %w", err)
 	}
-	
+
 	// Encode to PEM
 	return pem.EncodeToMemory(&pem.Block{
 		Type:  "CERTIFICATE",
@@ -187,7 +188,7 @@ func (k *SimpleKMS) deriveKey(contractAddr interfaces.ContractAddress, purpose s
 	h.Write(contractAddr[:])
 	h.Write([]byte(purpose))
 	seed := h.Sum(nil)
-	
+
 	// Create EC private key from seed
 	curve := elliptic.P256() // Use P-256 for all keys
 	privateKey := &ecdsa.PrivateKey{
@@ -196,10 +197,10 @@ func (k *SimpleKMS) deriveKey(contractAddr interfaces.ContractAddress, purpose s
 		},
 		D: new(big.Int).SetBytes(seed[:32]), // Use first 32 bytes as private key
 	}
-	
+
 	// Generate public key
 	privateKey.PublicKey.X, privateKey.PublicKey.Y = curve.ScalarBaseMult(seed[:32])
-	
+
 	return privateKey, nil
 }
 
@@ -213,7 +214,7 @@ func createCACertificate(caKey *ecdsa.PrivateKey, contractAddr interfaces.Contra
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate serial number: %w", err)
 	}
-	
+
 	// Create certificate template
 	template := x509.Certificate{
 		SerialNumber: serialNumber,
@@ -228,13 +229,13 @@ func createCACertificate(caKey *ecdsa.PrivateKey, contractAddr interfaces.Contra
 		IsCA:                  true,
 		MaxPathLen:            1,
 	}
-	
+
 	// Create certificate
 	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &caKey.PublicKey, caKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create certificate: %w", err)
 	}
-	
+
 	// Encode to PEM
 	return pem.EncodeToMemory(&pem.Block{
 		Type:  "CERTIFICATE",

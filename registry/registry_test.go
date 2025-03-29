@@ -28,12 +28,12 @@ func TestRegistryContract_Identity(t *testing.T) {
 
 	contractAddr, err := DeployContract(backend, auth, registry.DeployRegistry)
 	require.NoError(t, err)
-	
+
 	// Create client
 	regClient, err := NewOnchainRegistryClient(backend.Client(), backend.Client(), contractAddr)
 	require.NoError(t, err)
 	regClient.SetTransactOpts(auth)
-	
+
 	// Test DCAP identity calculation
 	dcapReport := &interfaces.DCAPReport{
 		MrTd: [32]byte{0x01},
@@ -47,11 +47,11 @@ func TestRegistryContract_Identity(t *testing.T) {
 		MrConfigId:    [32]byte{0x06},
 		MrConfigOwner: [32]byte{0x07},
 	}
-	
+
 	dcapIdentity, err := regClient.ComputeDCAPIdentity(dcapReport)
 	assert.NoError(t, err)
 	assert.NotEqual(t, [32]byte{}, dcapIdentity, "DCAP identity should not be empty")
-	
+
 	// Test MAA identity calculation
 	maaReport := &interfaces.MAAReport{
 		PCRs: [24][32]byte{},
@@ -60,7 +60,7 @@ func TestRegistryContract_Identity(t *testing.T) {
 	maaReport.PCRs[4] = [32]byte{0x04, 0x04}
 	maaReport.PCRs[9] = [32]byte{0x09, 0x09}
 	maaReport.PCRs[11] = [32]byte{0x0b, 0x0b}
-	
+
 	maaIdentity, err := regClient.ComputeMAAIdentity(maaReport)
 	assert.NoError(t, err)
 	assert.NotEqual(t, [32]byte{}, maaIdentity, "MAA identity should not be empty")
@@ -75,23 +75,23 @@ func TestRegistryContract_ConfigAndWhitelist(t *testing.T) {
 
 	contractAddr, err := DeployContract(backend, auth, registry.DeployRegistry)
 	require.NoError(t, err)
-	
+
 	// Create client
 	regClient, err := NewOnchainRegistryClient(backend.Client(), backend.Client(), contractAddr)
 	require.NoError(t, err)
 	regClient.SetTransactOpts(auth)
-	
+
 	// Test adding a configuration
 	configData := []byte(`{"name":"test-app","version":"1.0","timeout":30}`)
 	configHash, _, err := regClient.AddConfig(configData)
 	assert.NoError(t, err)
 	backend.Commit()
-	
+
 	// Test retrieving the configuration
 	storedConfig, err := regClient.GetConfig(configHash)
 	assert.NoError(t, err)
 	assert.Equal(t, configData, storedConfig)
-	
+
 	// Test setting config for a DCAP report
 	dcapReport := &interfaces.DCAPReport{
 		RTMRs: [4][32]byte{
@@ -101,30 +101,30 @@ func TestRegistryContract_ConfigAndWhitelist(t *testing.T) {
 			{0x07, 0x08}, // RTMR3
 		},
 	}
-	
+
 	_, err = regClient.SetConfigForDCAP(dcapReport, configHash)
 	assert.NoError(t, err)
 	backend.Commit()
-	
+
 	// Calculate the identity for this report
 	identity, err := regClient.ComputeDCAPIdentity(dcapReport)
 	assert.NoError(t, err)
-	
+
 	// Verify identity is whitelisted
 	isWhitelisted, err := regClient.IsWhitelisted(identity)
 	assert.NoError(t, err)
 	assert.True(t, isWhitelisted, "Identity should be whitelisted")
-	
+
 	// Verify config mapping
 	mappedConfig, err := regClient.IdentityConfigMap(identity)
 	assert.NoError(t, err)
 	assert.Equal(t, configHash, mappedConfig)
-	
+
 	// Test removing whitelisted identity
 	_, err = regClient.RemoveWhitelistedIdentity(identity)
 	assert.NoError(t, err)
 	backend.Commit()
-	
+
 	// Verify identity is no longer whitelisted
 	isWhitelisted, err = regClient.IsWhitelisted(identity)
 	assert.NoError(t, err)
@@ -139,40 +139,40 @@ func TestRegistryContract_StorageBackends(t *testing.T) {
 
 	contractAddr, err := DeployContract(backend, auth, registry.DeployRegistry)
 	require.NoError(t, err)
-	
+
 	// Create client
 	regClient, err := NewOnchainRegistryClient(backend.Client(), backend.Client(), contractAddr)
 	require.NoError(t, err)
 	regClient.SetTransactOpts(auth)
-	
+
 	// Test adding storage backends
 	backends := []string{
 		"file:///tmp/registry-test",
 		"ipfs://localhost:5001",
 		"s3://test-bucket/registry",
 	}
-	
+
 	for _, storageBackend := range backends {
 		_, err := regClient.AddStorageBackend(storageBackend)
 		assert.NoError(t, err)
 		backend.Commit()
 	}
-	
+
 	// Test retrieving all storage backends
 	storedBackends, err := regClient.AllStorageBackends()
 	assert.NoError(t, err)
 	assert.Len(t, storedBackends, len(backends))
-	
+
 	// Test removing a storage backend
 	_, err = regClient.RemoveStorageBackend(backends[0])
 	assert.NoError(t, err)
 	backend.Commit()
-	
+
 	// Verify backend was removed
 	storedBackends, err = regClient.AllStorageBackends()
 	assert.NoError(t, err)
 	assert.Len(t, storedBackends, len(backends)-1)
-	
+
 	// Verify the specific backend was removed
 	var found bool
 	for _, backend := range storedBackends {
@@ -192,30 +192,29 @@ func TestRegistryContract_DomainNames(t *testing.T) {
 
 	contractAddr, err := DeployContract(backend, auth, registry.DeployRegistry)
 	require.NoError(t, err)
-	
+
 	// Create client
 	regClient, err := NewOnchainRegistryClient(backend.Client(), backend.Client(), contractAddr)
 	require.NoError(t, err)
 	regClient.SetTransactOpts(auth)
 
-	
 	// Test registering domain names
 	domains := []string{
 		"instance1.test.example.com",
 		"instance2.test.example.com",
 	}
-	
+
 	for _, domain := range domains {
 		_, err := regClient.RegisterInstanceDomainName(domain)
 		assert.NoError(t, err)
 		backend.Commit()
 	}
-	
+
 	// Test retrieving all domain names
 	storedDomains, err := regClient.AllInstanceDomainNames()
 	assert.NoError(t, err)
 	assert.Len(t, storedDomains, len(domains))
-	
+
 	// Verify domains are in the list
 	for _, domain := range domains {
 		var found bool
@@ -276,7 +275,7 @@ func SetupTestChain() (*simulated.Backend, *bind.TransactOpts, *ecdsa.PrivateKey
 
 // DeployContract is a helper to deploy a contract and wait for it to be mined
 func DeployContract[C any](backend *simulated.Backend, auth *bind.TransactOpts,
-                   deployer func(auth *bind.TransactOpts, backend bind.ContractBackend) (common.Address, *types.Transaction, C, error)) (common.Address, error) {
+	deployer func(auth *bind.TransactOpts, backend bind.ContractBackend) (common.Address, *types.Transaction, C, error)) (common.Address, error) {
 	contractAddr, tx, _, err := deployer(auth, backend.Client())
 	if err != nil {
 		return common.Address{}, err

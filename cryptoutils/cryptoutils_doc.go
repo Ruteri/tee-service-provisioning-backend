@@ -17,15 +17,15 @@
 //
 // # Key Functions
 //
-// EncryptWithPublicKey - Encrypts data using a public key in PEM format
+// # EncryptWithPublicKey - Encrypts data using a public key in PEM format
 //
-// DecryptWithPrivateKey - Decrypts data using a private key in PEM format
+// # DecryptWithPrivateKey - Decrypts data using a private key in PEM format
 //
 // # Encryption Format
 //
 // The encrypted data follows this binary format:
 //
-//   [ephemeral key length (2 bytes)][ephemeral key][iv (12 bytes)][ciphertext]
+//	[ephemeral key length (2 bytes)][ephemeral key][iv (12 bytes)][ciphertext]
 //
 // Where:
 //   - Ephemeral key length: uint16 in big-endian format
@@ -50,26 +50,25 @@
 //
 // # Usage Example
 //
-//   // Get public key from PKI (typically from KMS)
-//   publicKeyPEM := pki.Pubkey
+//	// Get public key from PKI (typically from KMS)
+//	publicKeyPEM := pki.Pubkey
 //
-//   // Encrypt sensitive data
-//   secretData := []byte(`{"username":"admin","password":"secure123"}`)
-//   encryptedData, err := cryptoutils.EncryptWithPublicKey(publicKeyPEM, secretData)
-//   if err != nil {
-//       log.Fatalf("Failed to encrypt: %v", err)
-//   }
+//	// Encrypt sensitive data
+//	secretData := []byte(`{"username":"admin","password":"secure123"}`)
+//	encryptedData, err := cryptoutils.EncryptWithPublicKey(publicKeyPEM, secretData)
+//	if err != nil {
+//	    log.Fatalf("Failed to encrypt: %v", err)
+//	}
 //
-//   // Store the encrypted data...
+//	// Store the encrypted data...
 //
-//   // Later, decrypt with private key
-//   decryptedData, err := cryptoutils.DecryptWithPrivateKey(privateKeyPEM, encryptedData)
-//   if err != nil {
-//       log.Fatalf("Failed to decrypt: %v", err)
-//   }
+//	// Later, decrypt with private key
+//	decryptedData, err := cryptoutils.DecryptWithPrivateKey(privateKeyPEM, encryptedData)
+//	if err != nil {
+//	    log.Fatalf("Failed to decrypt: %v", err)
+//	}
 //
-//   // Use the decrypted data
-//   var credentials map[string]string
-//   json.Unmarshal(decryptedData, &credentials)
-//
+//	// Use the decrypted data
+//	var credentials map[string]string
+//	json.Unmarshal(decryptedData, &credentials)
 package cryptoutils

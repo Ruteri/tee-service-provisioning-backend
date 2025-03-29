@@ -31,7 +31,7 @@ func (sf *StorageBackendFactory) StorageBackendFor(locationURI interfaces.Storag
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", interfaces.ErrInvalidLocationURI, err)
 	}
-	
+
 	// Create the appropriate backend type based on the scheme
 	switch strings.ToLower(u.Scheme) {
 	case "ipfs":
@@ -50,7 +50,7 @@ func (sf *StorageBackendFactory) StorageBackendFor(locationURI interfaces.Storag
 // Returns an error if no valid backends could be created.
 func (sf *StorageBackendFactory) CreateMultiBackend(locationURIs []interfaces.StorageBackendLocation) (interfaces.StorageBackend, error) {
 	backends := make([]interfaces.StorageBackend, 0, len(locationURIs))
-	
+
 	for _, uri := range locationURIs {
 		backend, err := sf.StorageBackendFor(uri)
 		if err != nil {
@@ -61,11 +61,11 @@ func (sf *StorageBackendFactory) CreateMultiBackend(locationURIs []interfaces.St
 		}
 		backends = append(backends, backend)
 	}
-	
+
 	if len(backends) == 0 {
 		return nil, fmt.Errorf("no valid storage backends created")
 	}
-	
+
 	return NewMultiStorageBackend(backends, sf.log), nil
 }
 
@@ -73,24 +73,24 @@ func (sf *StorageBackendFactory) CreateMultiBackend(locationURIs []interfaces.St
 // URI format: ipfs://host:port/?gateway=true&timeout=30s
 func (sf *StorageBackendFactory) createIPFSBackend(u *url.URL) (interfaces.StorageBackend, error) {
 	sf.log.Debug("Creating IPFS backend", slog.String("uri", u.String()))
-	
+
 	// Parse host and port
 	host := u.Hostname()
 	port := u.Port()
 	if port == "" {
 		port = "5001" // Default IPFS API port
 	}
-	
+
 	// Check if this is a gateway
 	query := u.Query()
 	useGateway := query.Get("gateway") == "true"
-	
+
 	// Parse timeout
 	timeout := query.Get("timeout")
 	if timeout == "" {
 		timeout = "30s" // Default timeout
 	}
-	
+
 	// Create the backend
 	return NewIPFSBackend(host, port, useGateway, timeout, sf.log)
 }
@@ -99,22 +99,22 @@ func (sf *StorageBackendFactory) createIPFSBackend(u *url.URL) (interfaces.Stora
 // URI format: s3://[ACCESS_KEY:SECRET_KEY@]bucket-name/path/?region=us-west-2&endpoint=custom.s3.com
 func (sf *StorageBackendFactory) createS3Backend(u *url.URL) (interfaces.StorageBackend, error) {
 	sf.log.Debug("Creating S3 backend", slog.String("uri", u.String()))
-	
+
 	// Get bucket name
 	bucketName := u.Host
-	
+
 	// Parse path - remove leading slash
 	path := strings.TrimPrefix(u.Path, "/")
-	
+
 	// Parse region and endpoint
 	query := u.Query()
 	region := query.Get("region")
 	if region == "" {
 		region = "us-east-1" // Default region
 	}
-	
+
 	endpoint := query.Get("endpoint")
-	
+
 	// Parse credentials
 	var accessKey, secretKey string
 	credentials := query.Get("credentials")
@@ -131,7 +131,7 @@ func (sf *StorageBackendFactory) createS3Backend(u *url.URL) (interfaces.Storage
 	} else {
 		sf.log.Debug("No credentials provided, S3 bucket assumed to be public, write operations may fail")
 	}
-	
+
 	// Create the backend
 	return NewS3Backend(bucketName, path, region, endpoint, accessKey, secretKey, sf.log)
 }
@@ -140,7 +140,7 @@ func (sf *StorageBackendFactory) createS3Backend(u *url.URL) (interfaces.Storage
 // URI format: file:///absolute/path/ or file://./relative/path/
 func (sf *StorageBackendFactory) createFileBackend(u *url.URL) (interfaces.StorageBackend, error) {
 	sf.log.Debug("Creating file backend", slog.String("uri", u.String()))
-	
+
 	// Get the path, handling relative vs absolute paths
 	path := u.Path
 	if u.Host != "" {
@@ -151,12 +151,12 @@ func (sf *StorageBackendFactory) createFileBackend(u *url.URL) (interfaces.Stora
 			path = u.Host + "/" + strings.TrimPrefix(path, "/")
 		}
 	}
-	
+
 	// Make sure path is not empty
 	if path == "" {
 		return nil, fmt.Errorf("empty path in file URI: %s", u.String())
 	}
-	
+
 	// Create the backend
 	return NewFileBackend(path, sf.log)
 }

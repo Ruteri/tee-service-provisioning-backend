@@ -27,12 +27,12 @@ type MockRegistryClient struct {
 // This implementation uses in-memory maps instead of blockchain transactions.
 func NewMockRegistryClient() *MockRegistryClient {
 	return &MockRegistryClient{
-		configs:         make(map[[32]byte][]byte),
-		secrets:         make(map[[32]byte][]byte),
-		idToConfig:      make(map[[32]byte][32]byte),
-		whitelisted:     make(map[[32]byte]bool),
-		storageBackends: []string{},
-		domainNames:     []string{},
+		configs:          make(map[[32]byte][]byte),
+		secrets:          make(map[[32]byte][]byte),
+		idToConfig:       make(map[[32]byte][32]byte),
+		whitelisted:      make(map[[32]byte]bool),
+		storageBackends:  []string{},
+		domainNames:      []string{},
 		allowTransacting: false,
 	}
 }
@@ -47,7 +47,7 @@ func (m *MockRegistryClient) SetTransactOpts() {
 func (m *MockRegistryClient) GetPKI() (*interfaces.AppPKI, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	
+
 	if m.pki == nil {
 		return nil, errors.New("no PKI configured")
 	}
@@ -58,7 +58,7 @@ func (m *MockRegistryClient) GetPKI() (*interfaces.AppPKI, error) {
 func (m *MockRegistryClient) IsWhitelisted(identity [32]byte) (bool, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	
+
 	return m.whitelisted[identity], nil
 }
 
@@ -66,7 +66,7 @@ func (m *MockRegistryClient) IsWhitelisted(identity [32]byte) (bool, error) {
 func (m *MockRegistryClient) GetConfig(configHash [32]byte) ([]byte, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	
+
 	config, exists := m.configs[configHash]
 	if !exists {
 		return nil, errors.New("config not found")
@@ -78,7 +78,7 @@ func (m *MockRegistryClient) GetConfig(configHash [32]byte) ([]byte, error) {
 func (m *MockRegistryClient) GetSecret(secretHash [32]byte) ([]byte, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	
+
 	secret, exists := m.secrets[secretHash]
 	if !exists {
 		return nil, errors.New("secret not found")
@@ -93,7 +93,7 @@ func (m *MockRegistryClient) ComputeDCAPIdentity(report *interfaces.DCAPReport) 
 	var data []byte
 	data = append(data, report.RTMRs[0][:]...)
 	data = append(data, report.RTMRs[1][:]...)
-	
+
 	return sha256.Sum256(data), nil
 }
 
@@ -104,7 +104,7 @@ func (m *MockRegistryClient) ComputeMAAIdentity(report *interfaces.MAAReport) ([
 	var data []byte
 	data = append(data, report.PCRs[0][:]...)
 	data = append(data, report.PCRs[1][:]...)
-	
+
 	return sha256.Sum256(data), nil
 }
 
@@ -112,7 +112,7 @@ func (m *MockRegistryClient) ComputeMAAIdentity(report *interfaces.MAAReport) ([
 func (m *MockRegistryClient) IdentityConfigMap(identity [32]byte) ([32]byte, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	
+
 	configHash, exists := m.idToConfig[identity]
 	if !exists {
 		return [32]byte{}, errors.New("no config mapped to this identity")
@@ -124,11 +124,11 @@ func (m *MockRegistryClient) IdentityConfigMap(identity [32]byte) ([32]byte, err
 func (m *MockRegistryClient) AllStorageBackends() ([]string, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	
+
 	// Return a copy to prevent modification of internal state
 	backends := make([]string, len(m.storageBackends))
 	copy(backends, m.storageBackends)
-	
+
 	return backends, nil
 }
 
@@ -138,17 +138,17 @@ func (m *MockRegistryClient) AddStorageBackend(locationURI string) (*types.Trans
 	if !m.allowTransacting {
 		return nil, ErrNoTransactOpts
 	}
-	
+
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	
+
 	// Check for duplicates
 	for _, existing := range m.storageBackends {
 		if existing == locationURI {
 			return &types.Transaction{}, nil // Already exists, return empty TX
 		}
 	}
-	
+
 	m.storageBackends = append(m.storageBackends, locationURI)
 	return &types.Transaction{}, nil
 }
@@ -159,10 +159,10 @@ func (m *MockRegistryClient) RemoveStorageBackend(locationURI string) (*types.Tr
 	if !m.allowTransacting {
 		return nil, ErrNoTransactOpts
 	}
-	
+
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	
+
 	for i, backend := range m.storageBackends {
 		if backend == locationURI {
 			// Remove the backend by replacing with the last element and shrinking the slice
@@ -171,7 +171,7 @@ func (m *MockRegistryClient) RemoveStorageBackend(locationURI string) (*types.Tr
 			break
 		}
 	}
-	
+
 	return &types.Transaction{}, nil
 }
 
@@ -181,17 +181,17 @@ func (m *MockRegistryClient) RegisterInstanceDomainName(domain string) (*types.T
 	if !m.allowTransacting {
 		return nil, ErrNoTransactOpts
 	}
-	
+
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	
+
 	// Check for duplicates
 	for _, existing := range m.domainNames {
 		if existing == domain {
 			return &types.Transaction{}, nil // Already exists, return empty TX
 		}
 	}
-	
+
 	m.domainNames = append(m.domainNames, domain)
 	return &types.Transaction{}, nil
 }
@@ -200,11 +200,11 @@ func (m *MockRegistryClient) RegisterInstanceDomainName(domain string) (*types.T
 func (m *MockRegistryClient) AllInstanceDomainNames() ([]string, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	
+
 	// Return a copy to prevent modification of internal state
 	domains := make([]string, len(m.domainNames))
 	copy(domains, m.domainNames)
-	
+
 	return domains, nil
 }
 
@@ -214,14 +214,14 @@ func (m *MockRegistryClient) AddConfig(data []byte) ([32]byte, *types.Transactio
 	if !m.allowTransacting {
 		return [32]byte{}, nil, ErrNoTransactOpts
 	}
-	
+
 	hash := sha256.Sum256(data)
-	
+
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	
+
 	m.configs[hash] = data
-	
+
 	return hash, &types.Transaction{}, nil
 }
 
@@ -231,14 +231,14 @@ func (m *MockRegistryClient) AddSecret(data []byte) ([32]byte, *types.Transactio
 	if !m.allowTransacting {
 		return [32]byte{}, nil, ErrNoTransactOpts
 	}
-	
+
 	hash := sha256.Sum256(data)
-	
+
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	
+
 	m.secrets[hash] = data
-	
+
 	return hash, &types.Transaction{}, nil
 }
 
@@ -249,29 +249,29 @@ func (m *MockRegistryClient) SetConfigForDCAP(report *interfaces.DCAPReport, con
 	if !m.allowTransacting {
 		return nil, ErrNoTransactOpts
 	}
-	
+
 	// Check if config exists
 	m.mutex.RLock()
 	_, exists := m.configs[configHash]
 	m.mutex.RUnlock()
-	
+
 	if !exists {
 		return nil, errors.New("config does not exist")
 	}
-	
+
 	// Compute identity
 	identity, err := m.ComputeDCAPIdentity(report)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	
+
 	// Whitelist the identity and map it to the config
 	m.whitelisted[identity] = true
 	m.idToConfig[identity] = configHash
-	
+
 	return &types.Transaction{}, nil
 }
 
@@ -282,29 +282,29 @@ func (m *MockRegistryClient) SetConfigForMAA(report *interfaces.MAAReport, confi
 	if !m.allowTransacting {
 		return nil, ErrNoTransactOpts
 	}
-	
+
 	// Check if config exists
 	m.mutex.RLock()
 	_, exists := m.configs[configHash]
 	m.mutex.RUnlock()
-	
+
 	if !exists {
 		return nil, errors.New("config does not exist")
 	}
-	
+
 	// Compute identity
 	identity, err := m.ComputeMAAIdentity(report)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	
+
 	// Whitelist the identity and map it to the config
 	m.whitelisted[identity] = true
 	m.idToConfig[identity] = configHash
-	
+
 	return &types.Transaction{}, nil
 }
 
@@ -315,18 +315,18 @@ func (m *MockRegistryClient) RemoveWhitelistedIdentity(identity [32]byte) (*type
 	if !m.allowTransacting {
 		return nil, ErrNoTransactOpts
 	}
-	
+
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	
+
 	// Check if the identity is whitelisted
 	if !m.whitelisted[identity] {
 		return nil, errors.New("identity not whitelisted")
 	}
-	
+
 	// Remove from whitelist and config mapping
 	delete(m.whitelisted, identity)
 	delete(m.idToConfig, identity)
-	
+
 	return &types.Transaction{}, nil
 }

@@ -21,18 +21,18 @@ const (
 	// AttestationTypeHeader specifies the TEE attestation mechanism used.
 	// Supported values: "azure-tdx", "qemu-tdx"
 	AttestationTypeHeader = "X-Flashbots-Attestation-Type"
-	
+
 	// MeasurementHeader contains a JSON-encoded map of measurement values.
 	// Format: {"0":"00", "1":"01", ...} mapping register index to hex value.
-	MeasurementHeader     = "X-Flashbots-Measurement"
-	
+	MeasurementHeader = "X-Flashbots-Measurement"
+
 	// ContractAddrHeader specifies the contract address (alternative to URL path parameter).
-	ContractAddrHeader    = "X-Flashbots-Contract-Address"
-	
+	ContractAddrHeader = "X-Flashbots-Contract-Address"
+
 	// Supported attestation types
-	azureTDX  = "azure-tdx" // Azure confidential computing with TDX
-	qemuTDX   = "qemu-tdx"  // Any DCAP-compatible TDX implementation
-	
+	azureTDX = "azure-tdx" // Azure confidential computing with TDX
+	qemuTDX  = "qemu-tdx"  // Any DCAP-compatible TDX implementation
+
 	// maxBodySize is the maximum allowed request body size (1MB).
 	maxBodySize = 1024 * 1024
 )
@@ -42,7 +42,7 @@ const (
 type RequestError struct {
 	// StatusCode is the HTTP status code to return.
 	StatusCode int
-	
+
 	// Err is the underlying error.
 	Err error
 }
@@ -392,7 +392,7 @@ func findReferences(templateStr, prefix string) ([]Reference, error) {
 
 	matches := re.FindAllStringSubmatch(templateStr, -1)
 	refs := make([]Reference, 0, len(matches))
-	
+
 	for _, match := range matches {
 		if len(match) >= 2 {
 			refs = append(refs, Reference{
@@ -401,7 +401,7 @@ func findReferences(templateStr, prefix string) ([]Reference, error) {
 			})
 		}
 	}
-	
+
 	return refs, nil
 }
 
@@ -415,16 +415,16 @@ func findReferences(templateStr, prefix string) ([]Reference, error) {
 //   - Error if the hex string is invalid or wrong length
 func hexToHash(hexStr string) ([32]byte, error) {
 	var hash [32]byte
-	
+
 	decoded, err := hex.DecodeString(hexStr)
 	if err != nil {
 		return hash, err
 	}
-	
+
 	if len(decoded) != 32 {
 		return hash, fmt.Errorf("invalid hash length: %d", len(decoded))
 	}
-	
+
 	copy(hash[:], decoded)
 	return hash, nil
 }

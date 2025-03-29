@@ -51,35 +51,35 @@ func NewS3Backend(bucketName, prefix, region, endpoint, accessKey, secretKey str
 	baseCfg := aws.Config{
 		Region: aws.String(region),
 	}
-	
+
 	if endpoint != "" {
 		baseCfg.Endpoint = aws.String(endpoint)
 	}
-	
+
 	// Create AWS session for read operations (no credentials required for public buckets)
 	baseSess, err := session.NewSession(&baseCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create AWS session: %w", err)
 	}
-	
+
 	// Create read-only S3 client
 	readClient := s3.New(baseSess)
-	
+
 	// Check if we have write credentials
 	hasWriteAccess := accessKey != "" && secretKey != ""
 	var writeClient *s3.S3
-	
+
 	if hasWriteAccess {
 		// Configure AWS SDK with credentials for write access
 		writeCfg := baseCfg.Copy()
 		writeCfg.Credentials = credentials.NewStaticCredentials(accessKey, secretKey, "")
-		
+
 		// Create AWS session for write operations
 		writeSess, err := session.NewSession(writeCfg)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create AWS write session: %w", err)
 		}
-		
+
 		// Create write-enabled S3 client
 		writeClient = s3.New(writeSess)
 	} else {
@@ -88,18 +88,18 @@ func NewS3Backend(bucketName, prefix, region, endpoint, accessKey, secretKey str
 		writeClient = readClient
 		log.Warn("No S3 credentials provided - write operations may fail unless bucket is public writable")
 	}
-	
+
 	return &S3Backend{
-		client:        readClient,
-		writeClient:   writeClient,
-		bucketName:    bucketName,
-		prefix:        strings.TrimSuffix(prefix, "/"),
+		client:      readClient,
+		writeClient: writeClient,
+		bucketName:  bucketName,
+		prefix:      strings.TrimSuffix(prefix, "/"),
 		prefixes: map[interfaces.ContentType]string{
 			interfaces.ConfigType: "configs",
 			interfaces.SecretType: "secrets",
 		},
-		log:           log,
-		locationURI:   uri,
+		log:            log,
+		locationURI:    uri,
 		hasWriteAccess: hasWriteAccess,
 	}, nil
 }
@@ -107,56 +107,56 @@ func NewS3Backend(bucketName, prefix, region, endpoint, accessKey, secretKey str
 // Fetch retrieves an object from S3 by its content identifier and type.
 // Returns ErrContentNotFound if the object doesn't exist.
 func (b *S3Backend) Fetch(ctx context.Context, id interfaces.ContentID, contentType interfaces.ContentType) ([]byte, error) {
-    start := time.Now()
-    key := b.getObjectKey(id, contentType)
-    contentIDStr := fmt.Sprintf("%x", id[:8])
+	start := time.Now()
+	key := b.getObjectKey(id, contentType)
+	contentIDStr := fmt.Sprintf("%x", id[:8])
 
-    // Get object from S3
-    result, err := b.client.GetObjectWithContext(ctx, &s3.GetObjectInput{
-        Bucket: aws.String(b.bucketName),
-        Key:    aws.String(key),
-    })
+	// Get object from S3
+	result, err := b.client.GetObjectWithContext(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(b.bucketName),
+		Key:    aws.String(key),
+	})
 
-    if err != nil {
-        if strings.Contains(err.Error(), "NoSuchKey") || strings.Contains(err.Error(), "404") {
-            b.log.Debug("Content not found in S3",
-                slog.String("content_id", contentIDStr),
-                slog.String("bucket", b.bucketName),
-                slog.String("key", key),
-                slog.Duration("duration", time.Since(start)))
-            return nil, interfaces.ErrContentNotFound
-        }
+	if err != nil {
+		if strings.Contains(err.Error(), "NoSuchKey") || strings.Contains(err.Error(), "404") {
+			b.log.Debug("Content not found in S3",
+				slog.String("content_id", contentIDStr),
+				slog.String("bucket", b.bucketName),
+				slog.String("key", key),
+				slog.Duration("duration", time.Since(start)))
+			return nil, interfaces.ErrContentNotFound
+		}
 
-        b.log.Error("Failed to get object from S3",
-            slog.String("content_id", contentIDStr),
-            slog.String("bucket", b.bucketName),
-            slog.String("key", key),
-            "err", err,
-            slog.Duration("duration", time.Since(start)))
-        return nil, fmt.Errorf("failed to get object from S3: %w", err)
-    }
-    defer result.Body.Close()
+		b.log.Error("Failed to get object from S3",
+			slog.String("content_id", contentIDStr),
+			slog.String("bucket", b.bucketName),
+			slog.String("key", key),
+			"err", err,
+			slog.Duration("duration", time.Since(start)))
+		return nil, fmt.Errorf("failed to get object from S3: %w", err)
+	}
+	defer result.Body.Close()
 
-    // Read object body
-    data, err := io.ReadAll(result.Body)
-    if err != nil {
-        b.log.Error("Failed to read object body",
-            slog.String("content_id", contentIDStr),
-            slog.String("bucket", b.bucketName),
-            slog.String("key", key),
-            "err", err,
-            slog.Duration("duration", time.Since(start)))
-        return nil, fmt.Errorf("failed to read object body: %w", err)
-    }
+	// Read object body
+	data, err := io.ReadAll(result.Body)
+	if err != nil {
+		b.log.Error("Failed to read object body",
+			slog.String("content_id", contentIDStr),
+			slog.String("bucket", b.bucketName),
+			slog.String("key", key),
+			"err", err,
+			slog.Duration("duration", time.Since(start)))
+		return nil, fmt.Errorf("failed to read object body: %w", err)
+	}
 
-    b.log.Debug("Fetched content from S3",
-        slog.String("content_id", contentIDStr),
-        slog.String("bucket", b.bucketName),
-        slog.String("key", key),
-        slog.Int("size", len(data)),
-        slog.Duration("duration", time.Since(start)))
+	b.log.Debug("Fetched content from S3",
+		slog.String("content_id", contentIDStr),
+		slog.String("bucket", b.bucketName),
+		slog.String("key", key),
+		slog.Int("size", len(data)),
+		slog.Duration("duration", time.Since(start)))
 
-    return data, nil
+	return data, nil
 }
 
 // Store saves data to S3 and returns its content identifier.
@@ -194,22 +194,22 @@ func (b *S3Backend) Store(ctx context.Context, data []byte, contentType interfac
 
 // Available checks if the S3 backend is accessible by attempting to head the bucket.
 func (b *S3Backend) Available(ctx context.Context) bool {
-    start := time.Now()
+	start := time.Now()
 
-    // Try to head the bucket to check if it's accessible
-    _, err := b.client.HeadBucketWithContext(ctx, &s3.HeadBucketInput{
-        Bucket: aws.String(b.bucketName),
-    })
+	// Try to head the bucket to check if it's accessible
+	_, err := b.client.HeadBucketWithContext(ctx, &s3.HeadBucketInput{
+		Bucket: aws.String(b.bucketName),
+	})
 
-    if err != nil {
-        b.log.Warn("S3 backend unavailable",
-            slog.String("bucket", b.bucketName),
-            "err", err,
-            slog.Duration("duration", time.Since(start)))
-        return false
-    }
+	if err != nil {
+		b.log.Warn("S3 backend unavailable",
+			slog.String("bucket", b.bucketName),
+			"err", err,
+			slog.Duration("duration", time.Since(start)))
+		return false
+	}
 
-    return true
+	return true
 }
 
 // Name returns a unique identifier for this storage backend.
@@ -226,10 +226,10 @@ func (b *S3Backend) LocationURI() string {
 func (b *S3Backend) getObjectKey(id interfaces.ContentID, contentType interfaces.ContentType) string {
 	typePrefix := b.prefixes[contentType]
 	idStr := fmt.Sprintf("%x", id)
-	
+
 	if b.prefix == "" {
 		return path.Join(typePrefix, idStr)
 	}
-	
+
 	return path.Join(b.prefix, typePrefix, idStr)
 }

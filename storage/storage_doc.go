@@ -15,9 +15,9 @@
 //
 // Supported URI schemes:
 //
-//	- file:///var/lib/registry/configs/
-//	- s3://bucket-name/prefix/?region=us-west-2
-//	- ipfs://ipfs.example.com:5001/
+//   - file:///var/lib/registry/configs/
+//   - s3://bucket-name/prefix/?region=us-west-2
+//   - ipfs://ipfs.example.com:5001/
 //
 // # Content Addressing
 //
@@ -34,7 +34,7 @@
 // ContentType indicates what kind of content is being stored/retrieved:
 //
 //	type ContentType int
-//	
+//
 //	const (
 //	    ConfigType ContentType = iota
 //	    SecretType
@@ -56,16 +56,16 @@
 //	type StorageBackend interface {
 //	    // Fetch retrieves data by its identifier and type
 //	    Fetch(ctx context.Context, id ContentID, contentType ContentType) ([]byte, error)
-//	
+//
 //	    // Store saves data of the specified type and returns its identifier
 //	    Store(ctx context.Context, data []byte, contentType ContentType) (ContentID, error)
-//	
+//
 //	    // Available checks if this backend is currently accessible
 //	    Available(ctx context.Context) bool
-//	
+//
 //	    // Name returns the backend type (for logging/monitoring)
 //	    Name() string
-//	    
+//
 //	    // LocationURI returns the URI of this backend
 //	    LocationURI() string
 //	}
@@ -75,7 +75,7 @@
 //	type StorageBackendFactory interface {
 //	    // StorageBackendFor creates a storage backend from a location URI
 //	    StorageBackendFor(locationURI StorageBackendLocation) (StorageBackend, error)
-//	    
+//
 //	    // CreateMultiBackend creates a multi-storage backend from a list of location URIs
 //	    CreateMultiBackend(locationURIs []StorageBackendLocation) (StorageBackend, error)
 //	}
@@ -92,20 +92,20 @@
 //
 //	// Create a storage factory
 //	factory := storage.NewStorageBackendFactory(logger)
-//	
+//
 //	// Create a file backend
 //	fileBackend, err := factory.StorageBackendFor("file:///var/lib/registry/")
 //	if err != nil {
 //	    log.Fatalf("Failed to create file backend: %v", err)
 //	}
-//	
+//
 //	// Store content
 //	data := []byte("example configuration data")
 //	id, err := fileBackend.Store(context.Background(), data, interfaces.ConfigType)
 //	if err != nil {
 //	    log.Fatalf("Failed to store config: %v", err)
 //	}
-//	
+//
 //	// Retrieve content
 //	retrievedData, err := fileBackend.Fetch(context.Background(), id, interfaces.ConfigType)
 //	if err != nil {
@@ -121,5 +121,4 @@
 //	    "ipfs://localhost:5001/",
 //	}
 //	multiBackend, err := factory.CreateMultiBackend(locations)
-//
 package storage

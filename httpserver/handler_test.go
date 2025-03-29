@@ -82,16 +82,16 @@ func TestHandleRegister_Success(t *testing.T) {
 	// Create test CSR
 	csr, err := createTestCSR()
 	require.NoError(t, err)
-	
+
 	// Create request with contract address in URL
 	contractAddrHex := hex.EncodeToString(contractAddr[:])
 	req := httptest.NewRequest(
-		http.MethodPost, 
-		fmt.Sprintf("/api/attested/register/%s", contractAddrHex), 
+		http.MethodPost,
+		fmt.Sprintf("/api/attested/register/%s", contractAddrHex),
 		bytes.NewReader(csr),
 	)
 	req.Header.Set(AttestationTypeHeader, qemuTDX)
-	
+
 	// Use JSON-encoded measurement map
 	measurementsMap := map[string]string{
 		"0": "00",
@@ -117,18 +117,18 @@ func TestHandleRegister_Success(t *testing.T) {
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	
+
 	var result map[string]interface{}
 	respBody, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	err = json.Unmarshal(respBody, &result)
 	require.NoError(t, err, string(respBody))
-	
+
 	// Verify response contains expected fields
 	assert.Contains(t, result, "app_privkey")
 	assert.Contains(t, result, "tls_cert")
 	assert.Contains(t, result, "config")
-	
+
 	// Verify registry mock expectations were met
 	mockRegistryFactory.AssertExpectations(t)
 	mockRegistry.AssertExpectations(t)
@@ -177,12 +177,12 @@ func TestHandleRegister_IdentityNotWhitelisted(t *testing.T) {
 	// Create request with contract address in URL
 	contractAddrHex := hex.EncodeToString(contractAddr[:])
 	req := httptest.NewRequest(
-		http.MethodPost, 
-		fmt.Sprintf("/api/attested/register/%s", contractAddrHex), 
+		http.MethodPost,
+		fmt.Sprintf("/api/attested/register/%s", contractAddrHex),
 		bytes.NewReader(csr),
 	)
 	req.Header.Set(AttestationTypeHeader, qemuTDX)
-	
+
 	// Use JSON-encoded measurement map
 	measurementsMap := map[string]string{
 		"0": "00",
@@ -206,13 +206,13 @@ func TestHandleRegister_IdentityNotWhitelisted(t *testing.T) {
 	// Verify response
 	resp := w.Result()
 	defer resp.Body.Close()
-	
+
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
-	
+
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	assert.Contains(t, string(body), "identity not whitelisted")
-	
+
 	// Verify expectations
 	mockRegistryFactory.AssertExpectations(t)
 	mockRegistry.AssertExpectations(t)
@@ -245,8 +245,8 @@ func TestHandleAppMetadata_Success(t *testing.T) {
 	// Create test request with contract address in URL
 	contractAddrHex := hex.EncodeToString(contractAddr[:])
 	req := httptest.NewRequest(
-		http.MethodGet, 
-		fmt.Sprintf("/api/public/app_metadata/%s", contractAddrHex), 
+		http.MethodGet,
+		fmt.Sprintf("/api/public/app_metadata/%s", contractAddrHex),
 		nil,
 	)
 
@@ -261,15 +261,15 @@ func TestHandleAppMetadata_Success(t *testing.T) {
 	// Verify response
 	resp := w.Result()
 	defer resp.Body.Close()
-	
+
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	
+
 	var result map[string]interface{}
 	respBody, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	err = json.Unmarshal(respBody, &result)
 	require.NoError(t, err, string(respBody))
-	
+
 	// Verify response contains expected fields
 	assert.Contains(t, result, "ca_cert")
 	assert.Contains(t, result, "app_pubkey")

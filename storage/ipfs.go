@@ -41,10 +41,10 @@ func NewIPFSBackend(host, port string, useGateway bool, timeout string, log *slo
 	}
 
 	return &IPFSBackend{
-		shell:       shell.NewShell(apiURL),
-		host:        host,
-		port:        port,
-		useGateway:  useGateway,
+		shell:      shell.NewShell(apiURL),
+		host:       host,
+		port:       port,
+		useGateway: useGateway,
 		prefixes: map[interfaces.ContentType]string{
 			interfaces.ConfigType: "config",
 			interfaces.SecretType: "secret",
@@ -58,56 +58,56 @@ func NewIPFSBackend(host, port string, useGateway bool, timeout string, log *slo
 // Returns ErrContentNotFound if the content doesn't exist or ErrBackendUnavailable
 // if the IPFS node is not accessible.
 func (b *IPFSBackend) Fetch(ctx context.Context, id interfaces.ContentID, contentType interfaces.ContentType) ([]byte, error) {
-    start := time.Now()
-    path := b.getIPFSPath(id, contentType)
-    contentIDStr := fmt.Sprintf("%x", id[:8])
+	start := time.Now()
+	path := b.getIPFSPath(id, contentType)
+	contentIDStr := fmt.Sprintf("%x", id[:8])
 
-    // Check if the IPFS node is available
-    if !b.shell.IsUp() {
-        b.log.Warn("IPFS node unavailable",
-            slog.String("host", b.host),
-            slog.String("port", b.port))
-        return nil, interfaces.ErrBackendUnavailable
-    }
+	// Check if the IPFS node is available
+	if !b.shell.IsUp() {
+		b.log.Warn("IPFS node unavailable",
+			slog.String("host", b.host),
+			slog.String("port", b.port))
+		return nil, interfaces.ErrBackendUnavailable
+	}
 
-    // Fetch data from IPFS
-    reader, err := b.shell.Cat(path)
-    if err != nil {
-        if strings.Contains(err.Error(), "no link named") {
-            b.log.Debug("Content not found in IPFS",
-                slog.String("path", path),
-                slog.String("content_id", contentIDStr),
-                slog.Duration("duration", time.Since(start)))
-            return nil, interfaces.ErrContentNotFound
-        }
+	// Fetch data from IPFS
+	reader, err := b.shell.Cat(path)
+	if err != nil {
+		if strings.Contains(err.Error(), "no link named") {
+			b.log.Debug("Content not found in IPFS",
+				slog.String("path", path),
+				slog.String("content_id", contentIDStr),
+				slog.Duration("duration", time.Since(start)))
+			return nil, interfaces.ErrContentNotFound
+		}
 
-        b.log.Error("Failed to fetch data from IPFS",
-            slog.String("path", path),
-            slog.String("content_id", contentIDStr),
-            "err", err,
-            slog.Duration("duration", time.Since(start)))
-        return nil, fmt.Errorf("failed to fetch data from IPFS: %w", err)
-    }
-    defer reader.Close()
+		b.log.Error("Failed to fetch data from IPFS",
+			slog.String("path", path),
+			slog.String("content_id", contentIDStr),
+			"err", err,
+			slog.Duration("duration", time.Since(start)))
+		return nil, fmt.Errorf("failed to fetch data from IPFS: %w", err)
+	}
+	defer reader.Close()
 
-    // Read data
-    data, err := io.ReadAll(reader)
-    if err != nil {
-        b.log.Error("Failed to read data from IPFS",
-            slog.String("path", path),
-            slog.String("content_id", contentIDStr),
-            "err", err,
-            slog.Duration("duration", time.Since(start)))
-        return nil, fmt.Errorf("failed to read data from IPFS: %w", err)
-    }
+	// Read data
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		b.log.Error("Failed to read data from IPFS",
+			slog.String("path", path),
+			slog.String("content_id", contentIDStr),
+			"err", err,
+			slog.Duration("duration", time.Since(start)))
+		return nil, fmt.Errorf("failed to read data from IPFS: %w", err)
+	}
 
-    b.log.Debug("Fetched content from IPFS",
-        slog.String("path", path),
-        slog.String("content_id", contentIDStr),
-        slog.Int("size", len(data)),
-        slog.Duration("duration", time.Since(start)))
+	b.log.Debug("Fetched content from IPFS",
+		slog.String("path", path),
+		slog.String("content_id", contentIDStr),
+		slog.Int("size", len(data)),
+		slog.Duration("duration", time.Since(start)))
 
-    return data, nil
+	return data, nil
 }
 
 // Store adds data to IPFS and returns its content identifier.

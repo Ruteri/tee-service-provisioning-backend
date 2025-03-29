@@ -16,7 +16,7 @@ func TestEncryptionDecryption(t *testing.T) {
 	// Generate a key pair for testing
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
-	
+
 	// Convert private key to PEM format
 	privateKeyBytes, err := x509.MarshalECPrivateKey(privateKey)
 	require.NoError(t, err)
@@ -24,7 +24,7 @@ func TestEncryptionDecryption(t *testing.T) {
 		Type:  "EC PRIVATE KEY",
 		Bytes: privateKeyBytes,
 	})
-	
+
 	// Convert public key to PEM format
 	publicKeyBytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
 	require.NoError(t, err)
@@ -32,7 +32,7 @@ func TestEncryptionDecryption(t *testing.T) {
 		Type:  "PUBLIC KEY",
 		Bytes: publicKeyBytes,
 	})
-	
+
 	// Test cases
 	testCases := []struct {
 		name string
@@ -59,22 +59,22 @@ func TestEncryptionDecryption(t *testing.T) {
 			data: make([]byte, 1024), // 1KB of zeros
 		},
 	}
-	
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Encrypt the data
 			encryptedData, err := EncryptWithPublicKey(publicKeyPEM, tc.data)
 			require.NoError(t, err)
-			
+
 			// Encrypted data should be longer than original (except for empty data)
 			if len(tc.data) > 0 {
 				require.Greater(t, len(encryptedData), len(tc.data))
 			}
-			
+
 			// Decrypt the data
 			decryptedData, err := DecryptWithPrivateKey(privateKeyPEM, encryptedData)
 			require.NoError(t, err)
-			
+
 			// Verify the decrypted data matches the original
 			require.Equal(t, tc.data, decryptedData)
 		})
@@ -86,7 +86,7 @@ func TestDecryptionWithWrongKey(t *testing.T) {
 	// Generate key pair for encryption
 	privateKey1, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
-	
+
 	// Convert public key to PEM
 	publicKeyBytes, err := x509.MarshalPKIXPublicKey(&privateKey1.PublicKey)
 	require.NoError(t, err)
@@ -94,11 +94,11 @@ func TestDecryptionWithWrongKey(t *testing.T) {
 		Type:  "PUBLIC KEY",
 		Bytes: publicKeyBytes,
 	})
-	
+
 	// Generate different key pair for decryption
 	privateKey2, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
-	
+
 	// Convert second private key to PEM
 	privateKey2Bytes, err := x509.MarshalECPrivateKey(privateKey2)
 	require.NoError(t, err)
@@ -106,12 +106,12 @@ func TestDecryptionWithWrongKey(t *testing.T) {
 		Type:  "EC PRIVATE KEY",
 		Bytes: privateKey2Bytes,
 	})
-	
+
 	// Encrypt with first public key
 	data := []byte("Top secret data")
 	encryptedData, err := EncryptWithPublicKey(publicKeyPEM, data)
 	require.NoError(t, err)
-	
+
 	// Try to decrypt with wrong private key - should fail
 	_, err = DecryptWithPrivateKey(privateKey2PEM, encryptedData)
 	require.Error(t, err)
@@ -122,11 +122,11 @@ func TestInvalidKeyFormats(t *testing.T) {
 	// Test invalid public key
 	_, err := EncryptWithPublicKey([]byte("not a valid PEM"), []byte("test"))
 	require.Error(t, err)
-	
+
 	// Test invalid private key
 	_, err = DecryptWithPrivateKey([]byte("not a valid PEM"), []byte("test"))
 	require.Error(t, err)
-	
+
 	// Test invalid encrypted data format
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
@@ -136,11 +136,11 @@ func TestInvalidKeyFormats(t *testing.T) {
 		Type:  "EC PRIVATE KEY",
 		Bytes: privateKeyBytes,
 	})
-	
+
 	// Test with too short data
 	_, err = DecryptWithPrivateKey(privateKeyPEM, []byte{0x01})
 	require.Error(t, err)
-	
+
 	// Test with invalid format
 	_, err = DecryptWithPrivateKey(privateKeyPEM, make([]byte, 100))
 	require.Error(t, err)

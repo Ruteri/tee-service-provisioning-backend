@@ -56,5 +56,4 @@
 //	}
 //
 // This allows for better testability and flexibility in changing implementations.
-//
 package interfaces

@@ -7,11 +7,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ruteri/poc-tee-registry/common"
-	"github.com/ruteri/poc-tee-registry/metrics"
 	"github.com/flashbots/go-utils/httplogger"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/ruteri/poc-tee-registry/common"
+	"github.com/ruteri/poc-tee-registry/metrics"
 	"go.uber.org/atomic"
 	"go.uber.org/zap"
 )
@@ -168,16 +168,16 @@ func (srv *Server) handleDrain(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"status":"already draining"}`))
 		return
 	}
-	
+
 	srv.log.Info("Server marked as not ready")
-	
+
 	// Use a goroutine to avoid blocking the request handler
 	go func() {
 		// Wait for the drain duration to allow load balancers to detect the change
 		time.Sleep(srv.cfg.DrainDuration)
 		srv.log.Info("Drain period completed")
 	}()
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status":"draining"}`))
@@ -192,9 +192,9 @@ func (srv *Server) handleUndrain(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"status":"already ready"}`))
 		return
 	}
-	
+
 	srv.log.Info("Server marked as ready")
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status":"ready"}`))
