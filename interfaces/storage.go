@@ -4,6 +4,7 @@ package interfaces
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 )
 
@@ -72,4 +73,7 @@ type StorageBackendFactory interface {
 	// The multi-backend provides redundancy by trying operations across all backends.
 	// Returns an error if no valid backends could be created from the URIs.
 	CreateMultiBackend(locationURIs []StorageBackendLocation) (StorageBackend, error)
+
+	// WithTLSAuth configures factory to use TLS certificate for authorization in TLS-enabled backends
+	WithTLSAuth(func() (tls.Certificate, error)) StorageBackendFactory
 }

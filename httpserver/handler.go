@@ -2,8 +2,13 @@ package httpserver
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -342,8 +347,39 @@ func (h *Handler) handleRegister(ctx context.Context, attestationType string, me
 		locationURIs[i] = interfaces.StorageBackendLocation(loc)
 	}
 
+	lazyTlsAuthCert := func() (tls.Certificate, error) {
+		// TODO: cache and move to a standalone structure
+
+		// Note: reusing app privkey here, might not be secure
+
+		// Create a CSR template
+		csrTemplate := x509.CertificateRequest{
+			Subject: pkix.Name{
+				CommonName:   "test.example.com",
+				Organization: []string{"Test Organization"},
+			},
+			SignatureAlgorithm: x509.ECDSAWithSHA256,
+		}
+
+		// Create a CSR using the private key and template
+		csrDER, err := x509.CreateCertificateRequest(rand.Reader, &csrTemplate, appPrivkey)
+		if err != nil {
+			return tls.Certificate{}, err
+		}
+
+		// Encode the CSR in PEM format
+		csrPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER})
+
+		tlsCert, err := h.kms.SignCSR(contractAddr, csrPEM)
+		if err != nil {
+			return tls.Certificate{}, err
+		}
+
+		return tls.X509KeyPair(tlsCert, appPrivkey)
+	}
+
 	// Create multi-storage backend
-	multiStorage, err := h.storageFactory.CreateMultiBackend(locationURIs)
+	multiStorage, err := h.storageFactory.WithTLSAuth(lazyTlsAuthCert).CreateMultiBackend(locationURIs)
 	if err != nil {
 		h.log.Error("Failed to create multi-storage backend", "err", err)
 		return nil, nil, nil, fmt.Errorf("multi-storage creation error: %w", err)

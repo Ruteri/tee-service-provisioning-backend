@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -15,6 +16,7 @@ import (
 type StorageBackendFactory struct {
 	log             *slog.Logger
 	registryFactory interfaces.RegistryFactory
+	tlsAuthCertFn   func() (tls.Certificate, error)
 }
 
 // NewStorageBackendFactory creates a new factory instance that can create storage backends.
@@ -26,15 +28,15 @@ func NewStorageBackendFactory(logger *slog.Logger, registryFactory interfaces.Re
 	}
 }
 
+// WithTLSAuth sets tls certificate lazy function for authorization in tls-enabled backends
+func (f *StorageBackendFactory) WithTLSAuth(lazyTlsAuthCert func() (tls.Certificate, error)) interfaces.StorageBackendFactory {
+	nf := f
+	nf.tlsAuthCertFn = lazyTlsAuthCert
+	return nf
+}
+
 // StorageBackendFor creates a storage backend from a location URI.
 // The URI format should be [scheme]://[auth@]host[:port][/path][?params]
-//
-// Supported schemes:
-//   - file:// - Local filesystem storage
-//   - s3:// - Amazon S3 or compatible object storage
-//   - ipfs:// - IPFS distributed storage
-//   - onchain:// - Storage on Ethereum blockchain via Registry contract
-//   - github:// - Read-only storage using GitHub's Git blob API
 //
 // Returns an error if the URI is invalid or the scheme is unsupported.
 func (sf *StorageBackendFactory) StorageBackendFor(locationURI interfaces.StorageBackendLocation) (interfaces.StorageBackend, error) {
@@ -54,6 +56,16 @@ func (sf *StorageBackendFactory) StorageBackendFor(locationURI interfaces.Storag
 		return sf.createIPFSBackend(u)
 	case "s3":
 		return sf.createS3Backend(u)
+	case "valut":
+		if sf.tlsAuthCertFn == nil {
+			return nil, fmt.Errorf("client certificate and key are required for Vault backend")
+		}
+
+		tlsAuthCert, err := sf.tlsAuthCertFn()
+		if err != nil {
+			return nil, fmt.Errorf("client certificate and key are required for Vault backend")
+		}
+		return sf.createVaultBackend(u, tlsAuthCert)
 	case "file":
 		return sf.createFileBackend(u)
 	default:
@@ -227,4 +239,34 @@ func (sf *StorageBackendFactory) createFileBackend(u *url.URL) (interfaces.Stora
 
 	// Create the backend
 	return NewFileBackend(path, sf.log)
+}
+
+// createVaultBackend creates a Vault storage backend with TLS client certificate authentication.
+// URI format: vault://vault.example.com:8200/secret/data
+// The client certificate must be signed by the application CA for TLS authentication.
+func (sf *StorageBackendFactory) createVaultBackend(
+	u *url.URL,
+	tlsCert tls.Certificate,
+) (interfaces.StorageBackend, error) {
+	sf.log.Debug("Creating Vault backend", slog.String("uri", u.String()))
+
+	// Parse server address
+	address := u.Host
+	if !strings.HasPrefix(address, "http") {
+		// Default to HTTPS
+		address = "https://" + address
+	}
+
+	// Parse path parts (mount path and data path)
+	path := strings.TrimPrefix(u.Path, "/")
+	pathParts := strings.SplitN(path, "/", 2)
+	if len(pathParts) < 2 {
+		return nil, fmt.Errorf("invalid Vault URI format, expected vault://host:port/mount/path")
+	}
+
+	mountPath := pathParts[0]
+	dataPath := pathParts[1]
+
+	// Create the backend
+	return NewVaultBackend(address, mountPath, dataPath, tlsCert, sf.log)
 }

@@ -8,6 +8,7 @@
 //   - IPFS storage for decentralized content
 //   - On-chain storage using Ethereum smart contracts
 //   - GitHub storage using repository content
+//   - Vault storage with TLS client certificate authentication
 //
 // # Storage URI Format
 //
@@ -22,6 +23,7 @@
 //   - ipfs://ipfs.example.com:5001/
 //   - onchain://0x1234567890abcdef1234567890abcdef12345678
 //   - github://owner/repo
+//   - vault://vault.example.com:8200/secret/data
 //
 // # Content Addressing
 //
@@ -64,18 +66,19 @@
 //
 // URI format: github://owner/repo
 //
-// Creating content in this model:
+// # Vault Storage with TLS Authentication
 //
-//  1. Create a blob with your content using git hash-object
-//  2. The blob SHA becomes your ContentID for retrieval
+// The VaultBackend stores content in HashiCorp Vault using TLS client certificate authentication:
 //
-// Example Git commands:
+//   - Authentication: Uses TLS client certificates signed by the application CA from the KMS
+//   - Path Structure: Uses KV v2 secret engine with path format: {mount}/data/{path}/{type}/{content_id}
+//   - Content Types: Configs and secrets are stored in separate paths within Vault
+//   - Security: Strong authentication and encryption for sensitive data
 //
-//	# Create a blob and get its SHA (which becomes your ContentID)
-//	blob_sha=$(git hash-object -w --stdin < myfile.json)
+// URI format: vault://vault.example.com:8200/secret/data
 //
-//	# Push to a remote repository
-//	# (This step requires adding the blob to the Git tree and creating a commit)
+// The client certificate must be provided when creating this backend. It should be signed
+// by the application CA configured in Vault for TLS authentication.
 //
 // # Usage Example for On-Chain Storage
 //
@@ -88,23 +91,21 @@
 //	    log.Fatalf("Failed to create on-chain backend: %v", err)
 //	}
 //
-// # Usage Example for GitHub Storage (Read-Only)
+// # Usage Example for Vault Storage with TLS Authentication
 //
-//	// Create a GitHub backend
-//	githubBackend, err := factory.StorageBackendFor("github://myorg/myrepo")
+//	// Create a Vault backend with TLS authentication
+//	vaultBackend, err := factory.StorageBackendFor("vault://vault.example.com:8200/secret/data")
 //	if err != nil {
-//	    log.Fatalf("Failed to create GitHub backend: %v", err)
+//	    log.Fatalf("Failed to create Vault backend: %v", err)
 //	}
-//
-//	// The ContentID is a Git tree SHA that contains exactly one blob
 //
 // # Multi-Backend Example
 //
-//	// Create a multi-backend from multiple locations including the new backends
+//	// Create a multi-backend from multiple locations including Vault
 //	locations := []interfaces.StorageBackendLocation{
 //	    "file:///var/lib/registry/",
 //	    "onchain://0x1234567890abcdef1234567890abcdef12345678",
-//	    "github://myorg/myrepo/main"
+//	    "vault://vault.example.com:8200/secret/data"
 //	}
 //	multiBackend, err := factory.CreateMultiBackend(locations)
 package storage

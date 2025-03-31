@@ -45,6 +45,11 @@ onchain://0x1234567890abcdef1234567890abcdef12345678
 github://owner/repo
 ```
 
+**Vault** (with TLS Client Authentication)
+```
+vault://vault.example.com:8200/secret/data
+```
+
 ## Content Addressing
 
 Content is stored and retrieved using content addressing:
@@ -71,6 +76,32 @@ The GitHub backend fetches content from public repositories using Git's blob obj
 - **Perfect Git Integration**: Directly uses Git's content-addressed objects
 - **Efficiency**: Single API call fetches content by its identifier
 
+## Vault Storage (with TLS Client Authentication)
+
+The Vault backend stores content in HashiCorp Vault with certificate-based authentication:
+
+- **Authentication**: Uses TLS client certificates signed by the application CA (from KMS)
+- **Path Structure**: Uses KV v2 secret engine with path format: `{mount}/data/{path}/{type}/{content_id}`
+- **Content Types**: Configs and secrets are stored in separate paths
+- **Security**: Strong authentication and encryption for sensitive data
+
+### Vault Authentication Flow
+
+1. Client obtains a certificate signed by the application CA from the KMS
+2. The certificate is used for TLS client authentication with Vault
+3. Vault verifies the certificate against the registered CA
+4. Only clients with valid certificates can access the content
+
+### Vault Usage Example
+
+```go
+// Create a storage factory
+factory := storage.NewStorageBackendFactory(logger, registryFactory).WithTLSAuth(/* tls generation fn */)
+
+// Create a Vault backend with TLS authentication
+vaultBackend, err := factory.StorageBackendFor("vault://vault.example.com:8200/secret/data")
+```
+
 ## MultiStorageBackend
 
 The `MultiStorageBackend` aggregates multiple backends:
@@ -83,7 +114,8 @@ The `MultiStorageBackend` aggregates multiple backends:
 
 - **On-Chain Storage**: All data is public and visible on the blockchain
 - **GitHub Blobs**: Create blob objects directly using `git hash-object -w <file>`
+- **Vault Authentication**: Requires proper setup of TLS authentication in Vault server
 - **Size Considerations**: 
   - On-chain storage is expensive for large content
   - GitHub has file size limits (typically 100MB)
-- **Token Protection**: Avoid embedding GitHub tokens in URI strings in production
+- **Token Protection**: Avoid embedding GitHub tokens or Vault tokens in URI strings in production
