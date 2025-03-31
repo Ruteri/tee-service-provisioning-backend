@@ -49,7 +49,7 @@ func TestHandleRegister_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	// Set up real storage factory
-	storageFactory := storage.NewStorageBackendFactory(logger)
+	storageFactory := storage.NewStorageBackendFactory(logger, nil)
 
 	// Initialize a file storage backend
 	fileBackend, err := storage.NewFileBackend(tempDir, logger)
@@ -152,7 +152,7 @@ func TestHandleRegister_IdentityNotWhitelisted(t *testing.T) {
 	require.NoError(t, err)
 
 	// Set up real storage factory
-	storageFactory := storage.NewStorageBackendFactory(logger)
+	storageFactory := storage.NewStorageBackendFactory(logger, nil)
 
 	// Set up mock registry factory (we still need this since it depends on blockchain)
 	mockRegistryFactory := new(registry.MockRegistryFactory)
@@ -231,7 +231,7 @@ func TestHandleAppMetadata_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	// Set up real storage factory
-	storageFactory := storage.NewStorageBackendFactory(logger)
+	storageFactory := storage.NewStorageBackendFactory(logger, nil)
 
 	// Set up mock registry factory (we still need this since it depends on blockchain)
 	mockRegistryFactory := new(registry.MockRegistryFactory)
@@ -299,7 +299,7 @@ func TestConfigReferenceResolution(t *testing.T) {
 	require.NoError(t, err)
 
 	// Set up real storage factory
-	storageFactory := storage.NewStorageBackendFactory(logger)
+	storageFactory := storage.NewStorageBackendFactory(logger, nil)
 
 	// Set up mock registry factory
 	mockRegistryFactory := new(registry.MockRegistryFactory)
@@ -492,7 +492,7 @@ func TestServerSideDecryption(t *testing.T) {
 	require.NoError(t, err)
 
 	// Setup storage factory
-	storageFactory := storage.NewStorageBackendFactory(logger)
+	storageFactory := storage.NewStorageBackendFactory(logger, nil)
 
 	// Setup mock registry
 	mockRegistryFactory := new(registry.MockRegistryFactory)
@@ -602,7 +602,7 @@ func TestComplexConfigWithServerDecryption(t *testing.T) {
 	require.NoError(t, err)
 
 	// Setup storage factory
-	storageFactory := storage.NewStorageBackendFactory(logger)
+	storageFactory := storage.NewStorageBackendFactory(logger, nil)
 
 	// Setup mock registry
 	mockRegistryFactory := new(registry.MockRegistryFactory)
@@ -739,7 +739,7 @@ func TestDecryptionFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	// Setup storage factory
-	storageFactory := storage.NewStorageBackendFactory(logger)
+	storageFactory := storage.NewStorageBackendFactory(logger, nil)
 
 	// Setup mock registry
 	mockRegistryFactory := new(registry.MockRegistryFactory)
@@ -830,7 +830,7 @@ func TestNonJSONSecret(t *testing.T) {
 	require.NoError(t, err)
 
 	// Setup storage factory
-	storageFactory := storage.NewStorageBackendFactory(logger)
+	storageFactory := storage.NewStorageBackendFactory(logger, nil)
 
 	// Setup mock registry
 	mockRegistryFactory := new(registry.MockRegistryFactory)

@@ -3,14 +3,18 @@ package httpserver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/flashbots/go-utils/httplogger"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/ruteri/poc-tee-registry/common"
+	"github.com/ruteri/poc-tee-registry/interfaces"
+	"github.com/ruteri/poc-tee-registry/kms"
 	"github.com/ruteri/poc-tee-registry/metrics"
 	"go.uber.org/atomic"
 	"go.uber.org/zap"
@@ -49,46 +53,83 @@ type HTTPServerConfig struct {
 	// WriteTimeout is the maximum duration before timing out writes of
 	// the response.
 	WriteTimeout time.Duration
+
+	// EnableAdmin determines whether to enable the admin API for KMS bootstrapping.
+	EnableAdmin bool
+
+	// AdminKeys is a map of admin IDs to their public keys for KMS bootstrapping.
+	// Required if EnableAdmin is true.
+	AdminKeys map[string][]byte
+
+	// BootstrapMode determines if the server is starting in bootstrap mode.
+	// In bootstrap mode, only admin endpoints are enabled until bootstrap completes.
+	BootstrapMode bool
 }
 
-// Server represents the HTTP server for the TEE registry service.
-// It handles routing, request dispatch, and server lifecycle management.
+// Server represents the HTTP server for the TEE registry system.
+// It can handle both registry API and admin API endpoints, depending on configuration.
 type Server struct {
 	cfg     *HTTPServerConfig
 	isReady atomic.Bool
+	mu      sync.RWMutex
 	log     *slog.Logger
 	zapLog  *zap.Logger
 
 	srv        *http.Server
 	metricsSrv *metrics.MetricsServer
-	handler    *Handler
+
+	// Handlers
+	registryHandler *Handler
+	adminHandler    *AdminHandler
+	kmsImpl         interfaces.KMS
+
+	// Bootstrap completed channel
+	bootstrapComplete chan struct{}
 }
 
-// New creates a new HTTP server with the specified configuration and handler.
+// New creates a new HTTP server with the specified configuration and handlers.
 //
 // Parameters:
 //   - cfg: Server configuration
-//   - handler: Request handler that processes application logic
+//   - registryHandler: Handler for registry API endpoints (can be nil in bootstrap mode)
+//   - kmsImpl: Key Management System implementation (can be nil in bootstrap mode)
 //
 // Returns:
 //   - Configured server instance
 //   - Error if server creation fails
-func New(cfg *HTTPServerConfig, handler *Handler) (srv *Server, err error) {
+func New(cfg *HTTPServerConfig, registryHandler *Handler, kmsImpl interfaces.KMS) (*Server, error) {
 	metricsSrv, err := metrics.New(common.PackageName, cfg.MetricsAddr)
 	if err != nil {
 		return nil, err
 	}
 
-	srv = &Server{
-		cfg:        cfg,
-		log:        cfg.Log,
-		zapLog:     cfg.ZapLogger,
-		srv:        nil,
-		metricsSrv: metricsSrv,
-		handler:    handler,
+	srv := &Server{
+		cfg:               cfg,
+		log:               cfg.Log,
+		zapLog:            cfg.ZapLogger,
+		registryHandler:   registryHandler,
+		kmsImpl:           kmsImpl,
+		metricsSrv:        metricsSrv,
+		bootstrapComplete: make(chan struct{}),
 	}
-	srv.isReady.Store(true)
 
+	// Create admin handler if admin API is enabled
+	if cfg.EnableAdmin {
+		if len(cfg.AdminKeys) == 0 {
+			return nil, errors.New("admin keys are required when admin API is enabled")
+		}
+
+		srv.adminHandler = NewAdminHandler(cfg.Log, cfg.AdminKeys)
+	}
+
+	// Set initial ready state
+	if !cfg.BootstrapMode {
+		srv.isReady.Store(true)
+	} else {
+		srv.isReady.Store(false)
+	}
+
+	// Create HTTP server
 	srv.srv = &http.Server{
 		Addr:         cfg.ListenAddr,
 		Handler:      srv.getRouter(),
@@ -99,14 +140,30 @@ func New(cfg *HTTPServerConfig, handler *Handler) (srv *Server, err error) {
 	return srv, nil
 }
 
-// getRouter creates and configures the HTTP router with all endpoints.
-// It sets up routes for registration, app metadata, and health checks.
+// getRouter creates and configures the HTTP router with appropriate endpoints.
+// The router's configuration depends on the server's mode (bootstrap vs. normal).
 func (srv *Server) getRouter() http.Handler {
 	mux := chi.NewRouter()
 
-	// API endpoints with contract address in URL path
-	mux.With(srv.httpLogger).Post("/api/attested/register/{contract_address}", srv.handleRegister)
-	mux.With(srv.httpLogger).Get("/api/public/app_metadata/{contract_address}", srv.handleAppMetadata)
+	// Always add middleware
+	mux.Use(middleware.RequestID)
+	mux.Use(middleware.RealIP)
+	mux.Use(middleware.Recoverer)
+
+	// Add admin routes if enabled
+	if srv.cfg.EnableAdmin && srv.adminHandler != nil {
+		mux.Group(func(r chi.Router) {
+			r.Use(srv.httpLogger)
+			mux.Mount("/admin", srv.adminHandler.AdminRouter())
+		})
+	}
+
+	// Add registry API routes if not in bootstrap mode or if registry handler is available
+	if !srv.cfg.BootstrapMode || srv.registryHandler != nil {
+		// API endpoints with contract address in URL path
+		mux.With(srv.httpLogger).Post("/api/attested/register/{contract_address}", srv.handleRegister)
+		mux.With(srv.httpLogger).Get("/api/public/app_metadata/{contract_address}", srv.handleAppMetadata)
+	}
 
 	// Health and diagnostic endpoints
 	mux.With(srv.httpLogger).Get("/livez", srv.handleLivenessCheck)
@@ -118,6 +175,7 @@ func (srv *Server) getRouter() http.Handler {
 		srv.log.Info("pprof API enabled")
 		mux.Mount("/debug", middleware.Profiler())
 	}
+
 	return mux
 }
 
@@ -127,14 +185,44 @@ func (srv *Server) httpLogger(next http.Handler) http.Handler {
 	return httplogger.LoggingMiddlewareSlog(srv.log, next)
 }
 
-// handleRegister delegates TEE instance registration requests to the Handler.
+// handleRegister delegates TEE instance registration requests to the registry handler.
 func (srv *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
-	srv.handler.HandleRegister(w, r)
+	// In bootstrap mode, reject requests until bootstrap is complete
+	if srv.cfg.BootstrapMode && !srv.isReady.Load() {
+		http.Error(w, "Server is bootstrapping, please wait", http.StatusServiceUnavailable)
+		return
+	}
+
+	srv.mu.RLock()
+	handler := srv.registryHandler
+	srv.mu.RUnlock()
+
+	if handler == nil {
+		http.Error(w, "Registry handler not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	handler.HandleRegister(w, r)
 }
 
-// handleAppMetadata delegates application metadata requests to the Handler.
+// handleAppMetadata delegates application metadata requests to the registry handler.
 func (srv *Server) handleAppMetadata(w http.ResponseWriter, r *http.Request) {
-	srv.handler.HandleAppMetadata(w, r)
+	// In bootstrap mode, reject requests until bootstrap is complete
+	if srv.cfg.BootstrapMode && !srv.isReady.Load() {
+		http.Error(w, "Server is bootstrapping, please wait", http.StatusServiceUnavailable)
+		return
+	}
+
+	srv.mu.RLock()
+	handler := srv.registryHandler
+	srv.mu.RUnlock()
+
+	if handler == nil {
+		http.Error(w, "Registry handler not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	handler.HandleAppMetadata(w, r)
 }
 
 // handleLivenessCheck provides a simple health check to verify the server is running.
@@ -200,6 +288,67 @@ func (srv *Server) handleUndrain(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"status":"ready"}`))
 }
 
+// WaitForBootstrap waits for the KMS bootstrap process to complete.
+// This should only be called when the server is in bootstrap mode.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeout
+//
+// Returns:
+//   - The bootstrapped ShamirKMS if successful
+//   - Error if bootstrap fails or times out
+func (srv *Server) WaitForBootstrap(ctx context.Context) (*kms.ShamirKMS, error) {
+	if !srv.cfg.BootstrapMode || srv.adminHandler == nil {
+		return nil, errors.New("server not in bootstrap mode or admin handler not available")
+	}
+
+	// Wait for admin bootstrap to complete
+	if err := srv.adminHandler.WaitForBootstrap(ctx); err != nil {
+		return nil, fmt.Errorf("bootstrap timeout: %w", err)
+	}
+
+	// Get the bootstrapped KMS
+	shamirKMS := srv.adminHandler.GetKMS()
+	if shamirKMS == nil {
+		return nil, errors.New("failed to get initialized KMS")
+	}
+
+	// Update server state
+	srv.mu.Lock()
+	srv.kmsImpl = shamirKMS
+	srv.mu.Unlock()
+
+	// Mark server as ready
+	srv.isReady.Store(true)
+
+	// Signal bootstrap completion
+	close(srv.bootstrapComplete)
+
+	srv.log.Info("KMS bootstrap completed successfully")
+	return shamirKMS, nil
+}
+
+// SetRegistryHandler updates the registry handler with a new instance.
+// This is used after bootstrap to configure the registry handler with the bootstrapped KMS.
+//
+// Parameters:
+//   - handler: The new registry handler
+func (srv *Server) SetRegistryHandler(handler *Handler) {
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	srv.registryHandler = handler
+}
+
+// GetKMS returns the current KMS implementation.
+//
+// Returns:
+//   - The current KMS implementation
+func (srv *Server) GetKMS() interfaces.KMS {
+	srv.mu.RLock()
+	defer srv.mu.RUnlock()
+	return srv.kmsImpl
+}
+
 // RunInBackground starts the HTTP and metrics servers in separate goroutines.
 // It doesn't block the calling goroutine, allowing concurrent operations.
 func (srv *Server) RunInBackground() {
@@ -214,7 +363,7 @@ func (srv *Server) RunInBackground() {
 		}()
 	}
 
-	// Start API server
+	// Start HTTP server
 	go func() {
 		srv.log.Info("Starting HTTP server", "listenAddress", srv.cfg.ListenAddr)
 		if err := srv.srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

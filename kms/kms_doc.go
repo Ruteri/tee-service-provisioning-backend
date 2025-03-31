@@ -30,10 +30,37 @@
 // the contract address and purpose, ensuring consistent key generation even after
 // service restarts.
 //
+// # ShamirKMS
+//
+// An enhanced implementation that uses Shamir's Secret Sharing to securely manage
+// the master key. The master key is split into shares, distributed to administrators,
+// and never stored in persistent storage. When the KMS starts, it requires a threshold
+// number of authorized administrators to submit their shares to reconstruct the master key.
+//
+// ## Master Key Protection and Recovery
+//
+// The ShamirKMS protects the master key through several mechanisms:
+//
+//   - The master key is initially split into N shares, requiring M (threshold) shares to reconstruct
+//   - The original master key is securely erased after splitting
+//   - Each share is distributed to a different administrator
+//   - Shares must be cryptographically signed by the administrator's private key
+//   - During recovery, each share is verified against the administrator's public key
+//   - Once the threshold is met, shares are combined to reconstruct the master key
+//   - After reconstruction, all shares are securely wiped from memory
+//   - The reconstructed master key exists only in memory and is never written to persistent storage
+//
+// This approach ensures that:
+//
+//   - No single administrator can compromise the master key
+//   - The master key is protected even if the KMS storage is compromised
+//   - Recovery requires cooperation of multiple authorized administrators
+//   - The master key is securely managed throughout its lifecycle
+//
 // # Key Derivation
 //
 // Keys are derived deterministically using:
-//   - Master key (provided at initialization)
+//   - Master key (provided at initialization or reconstructed from shares)
 //   - Contract address (identifies the application)
 //   - Purpose ("ca" for certificate authorities, "app" for application keys)
 //
@@ -56,7 +83,7 @@
 // attested TEE instance. The private key allows not only for TLS communication but
 // also for decrypting sensitive configuration secrets.
 //
-// # Usage Example
+// # Usage Example: SimpleKMS
 //
 //	// Create a new SimpleKMS with a secure master key
 //	masterKey := make([]byte, 32)
@@ -75,15 +102,72 @@
 //	    log.Fatalf("Failed to get PKI: %v", err)
 //	}
 //
-//	// Get private key for decrypting secrets
-//	privateKey, err := simpleKMS.GetAppPrivkey(contractAddr)
+// # Usage Example: ShamirKMS (Setup)
+//
+//	// Generate a secure master key
+//	masterKey := make([]byte, 32)
+//	rand.Read(masterKey)
+//
+//	// Create a ShamirKMS with a 3-of-5 threshold
+//	shamirKMS, shares, err := kms.NewShamirKMS(masterKey, 3, 5)
 //	if err != nil {
-//	    log.Fatalf("Failed to get app private key: %v", err)
+//	    log.Fatalf("Failed to create ShamirKMS: %v", err)
 //	}
 //
-//	// Use private key to decrypt a pre-encrypted secret
-//	decryptedSecret, err := crypto.DecryptWithPrivateKey(privateKey, encryptedSecret)
+//	// Register administrators (in a production system, these would be loaded from configuration)
+//	for i := 0; i < 5; i++ {
+//	    // In production, these would be pre-generated and securely stored
+//	    adminKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 //
-//	// Sign a CSR for a verified TEE instance
-//	tlsCert, err := simpleKMS.SignCSR(contractAddr, csrData)
+//	    // Convert public key to PEM
+//	    pubKeyBytes, _ := x509.MarshalPKIXPublicKey(&adminKey.PublicKey)
+//	    pubKeyPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubKeyBytes})
+//
+//	    // Register the admin
+//	    shamirKMS.RegisterAdmin(pubKeyPEM)
+//
+//	    // Sign share with admin's private key
+//	    signature, _ := kms.SignShare(shares[i], adminKey)
+//
+//	    // Securely distribute to admin: shares[i], signature, adminKey
+//	    fmt.Printf("Admin %d: please securely store your share and private key\n", i+1)
+//	}
+//
+// # Usage Example: ShamirKMS (Recovery)
+//
+//	// Create a ShamirKMS in recovery mode with a threshold of 3
+//	shamirKMS := kms.NewShamirKMSRecovery(3)
+//
+//	// Register administrator public keys (loaded from configuration)
+//	for i := 0; i < 5; i++ {
+//	    // Load admin public key from secure configuration
+//	    adminPubKeyPEM := loadAdminPublicKey(i)
+//	    shamirKMS.RegisterAdmin(adminPubKeyPEM)
+//	}
+//
+//	// Administrators submit their shares
+//	// In a real system, this would happen through an API or interface
+//	for i := 0; i < 3; i++ {
+//	    // Admin loads their share and private key
+//	    share := loadAdminShare(i)
+//	    adminKey := loadAdminPrivateKey(i)
+//
+//	    // Admin signs their share
+//	    signature, _ := kms.SignShare(share, adminKey)
+//
+//	    // Admin submits their share to the KMS
+//	    err := shamirKMS.SubmitShare(i, share, signature, getAdminPublicKeyPEM(adminKey))
+//	    if err != nil {
+//	        log.Printf("Share submission failed: %v", err)
+//	    }
+//	}
+//
+//	// Check if KMS is unlocked
+//	if shamirKMS.IsUnlocked() {
+//	    fmt.Println("KMS successfully unlocked and operational!")
+//
+//	    // Now we can use the KMS normally
+//	    pki, _ := shamirKMS.GetPKI(contractAddr)
+//	    // ...
+//	}
 package kms
