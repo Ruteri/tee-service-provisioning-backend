@@ -15,6 +15,9 @@ import (
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
 
+// ErrNoTransactOpts is returned when a transaction is attempted without first setting transaction options.
+var ErrNoTransactOpts = errors.New("no authorized transactor available")
+
 // OnchainRegistryClient implements the interfaces.OnchainRegistry interface for
 // interacting with a Registry smart contract deployed on a blockchain.
 type OnchainRegistryClient struct {
@@ -53,7 +56,7 @@ func (c *OnchainRegistryClient) SetTransactOpts(auth *bind.TransactOpts) {
 func (c *OnchainRegistryClient) GetPKI() (*interfaces.AppPKI, error) {
 	opts := &bind.CallOpts{Context: context.Background()}
 
-	pki, err := c.contract.AppPki(opts)
+	pki, err := c.contract.GetPKI(opts)
 	if err != nil {
 		return nil, err
 	}
@@ -65,51 +68,44 @@ func (c *OnchainRegistryClient) GetPKI() (*interfaces.AppPKI, error) {
 	}, nil
 }
 
-// IsWhitelisted checks if an identity hash is whitelisted in the registry.
-func (c *OnchainRegistryClient) IsWhitelisted(identity [32]byte) (bool, error) {
-	opts := &bind.CallOpts{Context: context.Background()}
-
-	return c.contract.WhitelistedIdentities(opts, identity)
-}
-
-// GetConfig retrieves a configuration by its hash from the registry.
-func (c *OnchainRegistryClient) GetConfig(configHash [32]byte) ([]byte, error) {
-	opts := &bind.CallOpts{Context: context.Background()}
-
-	return c.contract.Configs(opts, configHash)
-}
-
-// GetSecret retrieves an encrypted secret by its hash from the registry.
-func (c *OnchainRegistryClient) GetSecret(secretHash [32]byte) ([]byte, error) {
-	opts := &bind.CallOpts{Context: context.Background()}
-
-	return c.contract.EncryptedSecrets(opts, secretHash)
-}
-
 // ComputeDCAPIdentity calculates the identity hash for a DCAP report
 // using the same algorithm as the on-chain registry.
 func (c *OnchainRegistryClient) ComputeDCAPIdentity(report *interfaces.DCAPReport) ([32]byte, error) {
 	opts := &bind.CallOpts{Context: context.Background()}
 
-	// The contract expects an empty array of DCAPEvents as a second parameter
-	emptyEventLog := []registry.RegistryDCAPEvent{}
+	// Convert interfaces.DCAPReport to registry.DCAPReport
+	contractReport := registry.DCAPReport{
+		MrTd:          report.MrTd,
+		RTMRs:         report.RTMRs,
+		MrOwner:       report.MrOwner,
+		MrConfigId:    report.MrConfigId,
+		MrConfigOwner: report.MrConfigOwner,
+	}
 
-	return c.contract.DCAPIdentity(opts, *report, emptyEventLog)
+	// The contract expects an empty array of DCAPEvents as a second parameter
+	emptyEventLog := []registry.DCAPEvent{}
+
+	return c.contract.DCAPIdentity(opts, contractReport, emptyEventLog)
 }
 
-// ComputeMAAIdentity calculates the identity hash for a MAA report
+// ComputeMAAIdentity calculates the identity hash for an MAA report
 // using the same algorithm as the on-chain registry.
 func (c *OnchainRegistryClient) ComputeMAAIdentity(report *interfaces.MAAReport) ([32]byte, error) {
 	opts := &bind.CallOpts{Context: context.Background()}
 
-	return c.contract.MAAIdentity(opts, *report)
+	// Convert interfaces.MAAReport to registry.MAAReport
+	contractReport := registry.MAAReport{
+		PCRs: report.PCRs,
+	}
+
+	return c.contract.MAAIdentity(opts, contractReport)
 }
 
 // IdentityConfigMap gets the config hash assigned to an identity in the registry.
 func (c *OnchainRegistryClient) IdentityConfigMap(identity [32]byte) ([32]byte, error) {
 	opts := &bind.CallOpts{Context: context.Background()}
 
-	return c.contract.IdentityConfigMap(opts, identity)
+	return c.contract.GetConfigForIdentity(opts, identity)
 }
 
 // AllStorageBackends retrieves all storage backend URIs registered in the contract.
@@ -159,74 +155,80 @@ func (c *OnchainRegistryClient) AllInstanceDomainNames() ([]string, error) {
 	return c.contract.AllInstanceDomainNames(opts)
 }
 
-// AddConfig adds a new configuration to the registry and returns its hash.
+// AddArtifact adds a new artifact to the registry and returns its hash.
+// This can be configuration data, encrypted secrets, or any other content.
 // Returns the content hash, transaction, and an error if the transaction could not be sent.
-func (c *OnchainRegistryClient) AddConfig(data []byte) ([32]byte, *types.Transaction, error) {
+func (c *OnchainRegistryClient) AddArtifact(data []byte) ([32]byte, *types.Transaction, error) {
 	if c.auth == nil {
 		return [32]byte{}, nil, ErrNoTransactOpts
 	}
 
-	tx, err := c.contract.AddConfig(c.auth, data)
+	tx, err := c.contract.AddArtifact(c.auth, data)
 	if err != nil {
 		return [32]byte{}, nil, err
 	}
 
-	return crypto.Keccak256Hash(data), tx, nil
+	var hash [32]byte = crypto.Keccak256Hash(data)
+	return hash, tx, nil
 }
 
-// AddSecret adds a new encrypted secret to the registry and returns its hash.
-// Returns the content hash, transaction, and an error if the transaction could not be sent.
-func (c *OnchainRegistryClient) AddSecret(data []byte) ([32]byte, *types.Transaction, error) {
-	if c.auth == nil {
-		return [32]byte{}, nil, ErrNoTransactOpts
-	}
+// GetArtifact retrieves an artifact by its hash from the registry.
+// This can be a configuration, secret, or any other data.
+func (c *OnchainRegistryClient) GetArtifact(artifactHash [32]byte) ([]byte, error) {
+	opts := &bind.CallOpts{Context: context.Background()}
 
-	tx, err := c.contract.AddSecret(c.auth, data)
-	if err != nil {
-		return [32]byte{}, nil, err
-	}
-
-	return crypto.Keccak256Hash(data), tx, nil
+	return c.contract.GetArtifact(opts, artifactHash)
 }
 
-// SetConfigForDCAP sets the configuration for a DCAP report in the registry.
+// SetConfigForDCAP associates an artifact with a DCAP-attested identity.
 // Returns the transaction and an error if the transaction could not be sent.
-func (c *OnchainRegistryClient) SetConfigForDCAP(report *interfaces.DCAPReport, configHash [32]byte) (*types.Transaction, error) {
+func (c *OnchainRegistryClient) SetConfigForDCAP(report *interfaces.DCAPReport, artifactHash [32]byte) (*types.Transaction, error) {
 	if c.auth == nil {
 		return nil, ErrNoTransactOpts
+	}
+
+	// Convert interfaces.DCAPReport to registry.DCAPReport
+	contractReport := registry.DCAPReport{
+		MrTd:          report.MrTd,
+		RTMRs:         report.RTMRs,
+		MrOwner:       report.MrOwner,
+		MrConfigId:    report.MrConfigId,
+		MrConfigOwner: report.MrConfigOwner,
 	}
 
 	// The contract expects an empty array of DCAPEvents as a second parameter
-	emptyEventLog := []registry.RegistryDCAPEvent{}
+	emptyEventLog := []registry.DCAPEvent{}
 
-	tx, err := c.contract.SetConfigForDCAP(c.auth, *report, emptyEventLog, configHash)
+	tx, err := c.contract.SetConfigForDCAP(c.auth, contractReport, emptyEventLog, artifactHash)
 	return tx, err
 }
 
-// SetConfigForMAA sets the configuration for a MAA report in the registry.
+// SetConfigForMAA associates an artifact with an MAA-attested identity.
 // Returns the transaction and an error if the transaction could not be sent.
-func (c *OnchainRegistryClient) SetConfigForMAA(report *interfaces.MAAReport, configHash [32]byte) (*types.Transaction, error) {
+func (c *OnchainRegistryClient) SetConfigForMAA(report *interfaces.MAAReport, artifactHash [32]byte) (*types.Transaction, error) {
 	if c.auth == nil {
 		return nil, ErrNoTransactOpts
 	}
 
-	tx, err := c.contract.SetConfigForMAA(c.auth, *report, configHash)
+	// Convert interfaces.MAAReport to registry.MAAReport
+	contractReport := registry.MAAReport{
+		PCRs: report.PCRs,
+	}
+
+	tx, err := c.contract.SetConfigForMAA(c.auth, contractReport, artifactHash)
 	return tx, err
 }
 
-// RemoveWhitelistedIdentity removes a whitelisted identity from the registry.
+// RemoveConfigMapForIdentity removes an identity's mapping to an artifact.
 // Returns the transaction and an error if the transaction could not be sent.
-func (c *OnchainRegistryClient) RemoveWhitelistedIdentity(identity [32]byte) (*types.Transaction, error) {
+func (c *OnchainRegistryClient) RemoveConfigMapForIdentity(identity [32]byte) (*types.Transaction, error) {
 	if c.auth == nil {
 		return nil, ErrNoTransactOpts
 	}
 
-	tx, err := c.contract.RemoveWhitelistedIdentity(c.auth, identity)
+	tx, err := c.contract.RemoveConfigMapForIdentity(c.auth, identity)
 	return tx, err
 }
-
-// ErrNoTransactOpts is returned when a transaction is attempted without first setting transaction options.
-var ErrNoTransactOpts = errors.New("no authorized transactor available")
 
 // RegistryFactory creates OnchainRegistry instances for different contract addresses.
 type RegistryFactory struct {
@@ -242,5 +244,7 @@ func NewRegistryFactory(client bind.ContractBackend, backend bind.DeployBackend)
 
 // RegistryFor returns an OnchainRegistry instance for the specified contract address.
 func (f *RegistryFactory) RegistryFor(address interfaces.ContractAddress) (interfaces.OnchainRegistry, error) {
-	return NewOnchainRegistryClient(f.client, f.backend, common.Address(address))
+	// Convert interfaces.ContractAddress to common.Address
+	commonAddr := common.Address(address)
+	return NewOnchainRegistryClient(f.client, f.backend, commonAddr)
 }

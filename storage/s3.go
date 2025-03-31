@@ -25,7 +25,6 @@ type S3Backend struct {
 	writeClient    *s3.S3
 	bucketName     string
 	prefix         string
-	prefixes       map[interfaces.ContentType]string
 	log            *slog.Logger
 	locationURI    string
 	hasWriteAccess bool
@@ -94,10 +93,6 @@ func NewS3Backend(bucketName, prefix, region, endpoint, accessKey, secretKey str
 		writeClient: writeClient,
 		bucketName:  bucketName,
 		prefix:      strings.TrimSuffix(prefix, "/"),
-		prefixes: map[interfaces.ContentType]string{
-			interfaces.ConfigType: "configs",
-			interfaces.SecretType: "secrets",
-		},
 		log:            log,
 		locationURI:    uri,
 		hasWriteAccess: hasWriteAccess,
@@ -224,12 +219,11 @@ func (b *S3Backend) LocationURI() string {
 
 // getObjectKey generates an S3 object key based on content ID and type.
 func (b *S3Backend) getObjectKey(id interfaces.ContentID, contentType interfaces.ContentType) string {
-	typePrefix := b.prefixes[contentType]
 	idStr := fmt.Sprintf("%x", id)
 
 	if b.prefix == "" {
-		return path.Join(typePrefix, idStr)
+		return idStr
 	}
 
-	return path.Join(b.prefix, typePrefix, idStr)
+	return path.Join(b.prefix, idStr)
 }

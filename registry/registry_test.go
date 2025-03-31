@@ -66,8 +66,8 @@ func TestRegistryContract_Identity(t *testing.T) {
 	assert.NotEqual(t, [32]byte{}, maaIdentity, "MAA identity should not be empty")
 }
 
-// TestRegistryContract_ConfigAndWhitelist tests configuration and whitelist management
-func TestRegistryContract_ConfigAndWhitelist(t *testing.T) {
+// TestRegistryContract_ArtifactAndIdentity tests artifact management and identity mapping
+func TestRegistryContract_ArtifactAndIdentity(t *testing.T) {
 	// Skip if no local blockchain is available
 	backend, auth, _, err := SetupTestChain()
 	require.NoError(t, err)
@@ -81,16 +81,16 @@ func TestRegistryContract_ConfigAndWhitelist(t *testing.T) {
 	require.NoError(t, err)
 	regClient.SetTransactOpts(auth)
 
-	// Test adding a configuration
-	configData := []byte(`{"name":"test-app","version":"1.0","timeout":30}`)
-	configHash, _, err := regClient.AddConfig(configData)
+	// Test adding an artifact
+	artifactData := []byte(`{"name":"test-app","version":"1.0","timeout":30}`)
+	artifactHash, _, err := regClient.AddArtifact(artifactData)
 	assert.NoError(t, err)
 	backend.Commit()
 
-	// Test retrieving the configuration
-	storedConfig, err := regClient.GetConfig(configHash)
+	// Test retrieving the artifact
+	storedArtifact, err := regClient.GetArtifact(artifactHash)
 	assert.NoError(t, err)
-	assert.Equal(t, configData, storedConfig)
+	assert.Equal(t, artifactData, storedArtifact)
 
 	// Test setting config for a DCAP report
 	dcapReport := &interfaces.DCAPReport{
@@ -102,7 +102,7 @@ func TestRegistryContract_ConfigAndWhitelist(t *testing.T) {
 		},
 	}
 
-	_, err = regClient.SetConfigForDCAP(dcapReport, configHash)
+	_, err = regClient.SetConfigForDCAP(dcapReport, artifactHash)
 	assert.NoError(t, err)
 	backend.Commit()
 
@@ -110,25 +110,19 @@ func TestRegistryContract_ConfigAndWhitelist(t *testing.T) {
 	identity, err := regClient.ComputeDCAPIdentity(dcapReport)
 	assert.NoError(t, err)
 
-	// Verify identity is whitelisted
-	isWhitelisted, err := regClient.IsWhitelisted(identity)
+	// Verify artifact mapping
+	mappedArtifact, err := regClient.IdentityConfigMap(identity)
 	assert.NoError(t, err)
-	assert.True(t, isWhitelisted, "Identity should be whitelisted")
+	assert.Equal(t, artifactHash, mappedArtifact)
 
-	// Verify config mapping
-	mappedConfig, err := regClient.IdentityConfigMap(identity)
-	assert.NoError(t, err)
-	assert.Equal(t, configHash, mappedConfig)
-
-	// Test removing whitelisted identity
-	_, err = regClient.RemoveWhitelistedIdentity(identity)
+	// Test removing identity mapping
+	_, err = regClient.RemoveConfigMapForIdentity(identity)
 	assert.NoError(t, err)
 	backend.Commit()
 
-	// Verify identity is no longer whitelisted
-	isWhitelisted, err = regClient.IsWhitelisted(identity)
-	assert.NoError(t, err)
-	assert.False(t, isWhitelisted, "Identity should no longer be whitelisted")
+	// Verify identity no longer has an artifact mapping
+	_, err = regClient.IdentityConfigMap(identity)
+	assert.Error(t, err)
 }
 
 // TestRegistryContract_StorageBackends tests storage backend management
@@ -226,6 +220,52 @@ func TestRegistryContract_DomainNames(t *testing.T) {
 		}
 		assert.True(t, found, "Domain %s should be in the list", domain)
 	}
+}
+
+// TestLegacyMethods tests that the legacy methods still work correctly
+func TestLegacyMethods(t *testing.T) {
+	backend, auth, _, err := SetupTestChain()
+	require.NoError(t, err)
+	defer backend.Close()
+
+	contractAddr, err := DeployContract(backend, auth, registry.DeployRegistry)
+	require.NoError(t, err)
+
+	// Create client
+	regClient, err := NewOnchainRegistryClient(backend.Client(), backend.Client(), contractAddr)
+	require.NoError(t, err)
+	regClient.SetTransactOpts(auth)
+
+	// Test legacy AddConfig
+	configData := []byte(`{"name":"test-config","version":"1.0"}`)
+	configHash, _, err := regClient.AddArtifact(configData)
+	assert.NoError(t, err)
+	backend.Commit()
+
+	// Test legacy GetConfig
+	storedConfig, err := regClient.GetArtifact(configHash)
+	assert.NoError(t, err)
+	assert.Equal(t, configData, storedConfig)
+
+	// Test legacy AddSecret
+	secretData := []byte(`{"password":"secret123"}`)
+	secretHash, _, err := regClient.AddArtifact(secretData)
+	assert.NoError(t, err)
+	backend.Commit()
+
+	// Test legacy GetSecret
+	storedSecret, err := regClient.GetArtifact(secretHash)
+	assert.NoError(t, err)
+	assert.Equal(t, secretData, storedSecret)
+
+	// Verify that legacy methods use the same storage as the new methods
+	configFromArtifact, err := regClient.GetArtifact(configHash)
+	assert.NoError(t, err)
+	assert.Equal(t, configData, configFromArtifact)
+
+	secretFromArtifact, err := regClient.GetArtifact(secretHash)
+	assert.NoError(t, err)
+	assert.Equal(t, secretData, secretFromArtifact)
 }
 
 // Helper function to generate random bytes

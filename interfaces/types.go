@@ -33,17 +33,17 @@ type AppDomainName string
 
 // DCAPReport represents a Direct Capability Attestation Protocol report.
 // It contains measurement registers that uniquely identify a TEE instance.
-type DCAPReport = registry.RegistryDCAPReport
+type DCAPReport = registry.DCAPReport
 
 // DCAPEvent represents an event in the TEE runtime event log.
-type DCAPEvent = registry.RegistryDCAPEvent
+type DCAPEvent = registry.DCAPEvent
 
 // MAAReport represents a Microsoft Azure Attestation report.
 // It contains PCR values that uniquely identify a TEE instance.
-type MAAReport = registry.RegistryMAAReport
+type MAAReport = registry.MAAReport
 
 // AppPKI represents a PKI bundle containing CA certificate, public key, and attestation.
-type AppPKI = registry.RegistryAppPKI
+type AppPKI = registry.AppPKI
 
 // StorageBackendLocation represents a URI location for a content storage backend.
 type StorageBackendLocation string
@@ -71,15 +71,10 @@ type KMS interface {
 }
 
 // OnchainRegistry defines the interface for interacting with the registry smart contract.
-// It provides methods for identity verification, configuration management, and TEE orchestration.
+// It provides methods for identity verification, artifact management, and TEE orchestration.
 type OnchainRegistry interface {
 	// GetPKI retrieves the PKI information (CA, public key, and attestation) from the registry.
-	// This combines GetCA and GetAppPubkey into one method to match the contract structure.
 	GetPKI() (*AppPKI, error)
-
-	// IsWhitelisted checks if an identity hash is in the registry's whitelist.
-	// Returns true if the identity is allowed to receive configurations and keys.
-	IsWhitelisted(identity [32]byte) (bool, error)
 
 	// ComputeDCAPIdentity calculates the identity hash for a DCAP report.
 	// This uses the same algorithm as the on-chain registry contract.
@@ -89,36 +84,29 @@ type OnchainRegistry interface {
 	// This uses the same algorithm as the on-chain registry contract.
 	ComputeMAAIdentity(report *MAAReport) ([32]byte, error)
 
-	// GetConfig retrieves a configuration from the registry by its hash.
-	// Returns the configuration data or an error if not found.
-	GetConfig(configHash [32]byte) ([]byte, error)
+	// GetArtifact retrieves an artifact from the registry by its hash.
+	// Returns the artifact data or an error if not found.
+	GetArtifact(artifactHash [32]byte) ([]byte, error)
 
-	// GetSecret retrieves an encrypted secret from the registry by its hash.
-	// Returns the encrypted secret data or an error if not found.
-	GetSecret(secretHash [32]byte) ([]byte, error)
-
-	// IdentityConfigMap gets the config hash assigned to an identity.
-	// Returns the config hash or an error if no mapping exists.
+	// IdentityConfigMap gets the artifact hash assigned to an identity.
+	// Returns the artifact hash or an error if no mapping exists.
 	IdentityConfigMap(identity [32]byte) ([32]byte, error)
 
-	// AddConfig adds a new configuration to the registry.
+	// AddArtifact adds a new artifact to the registry.
+	// This can be configuration data, encrypted secrets, or any other content.
 	// Returns the content hash, transaction, and any error that occurred.
-	AddConfig(data []byte) ([32]byte, *types.Transaction, error)
+	AddArtifact(data []byte) ([32]byte, *types.Transaction, error)
 
-	// AddSecret adds a new encrypted secret to the registry.
-	// Returns the content hash, transaction, and any error that occurred.
-	AddSecret(data []byte) ([32]byte, *types.Transaction, error)
-
-	// SetConfigForDCAP associates a configuration with a DCAP-attested identity.
+	// SetConfigForDCAP associates an artifact with a DCAP-attested identity.
 	// Returns the transaction and any error that occurred.
-	SetConfigForDCAP(report *DCAPReport, configHash [32]byte) (*types.Transaction, error)
+	SetConfigForDCAP(report *DCAPReport, artifactHash [32]byte) (*types.Transaction, error)
 
-	// SetConfigForMAA associates a configuration with an MAA-attested identity.
+	// SetConfigForMAA associates an artifact with an MAA-attested identity.
 	// Returns the transaction and any error that occurred.
-	SetConfigForMAA(report *MAAReport, configHash [32]byte) (*types.Transaction, error)
+	SetConfigForMAA(report *MAAReport, artifactHash [32]byte) (*types.Transaction, error)
 
 	// AllStorageBackends returns all registered storage backend URIs.
-	// These backends are used for retrieving configurations and secrets.
+	// These backends are used for retrieving artifacts.
 	AllStorageBackends() ([]string, error)
 
 	// AddStorageBackend registers a new storage backend URI.
@@ -136,10 +124,6 @@ type OnchainRegistry interface {
 	// RegisterInstanceDomainName adds a new domain name for instances.
 	// Returns the transaction and any error that occurred.
 	RegisterInstanceDomainName(domain string) (*types.Transaction, error)
-
-	// RemoveWhitelistedIdentity removes an identity from the registry whitelist.
-	// Returns the transaction and any error that occurred.
-	RemoveWhitelistedIdentity(identity [32]byte) (*types.Transaction, error)
 }
 
 // RegistryFactory creates OnchainRegistry instances for different contract addresses.

@@ -165,9 +165,7 @@ func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 			"contractAddress", contractAddrHex)
 
 		// Return appropriate status code based on error type
-		if strings.Contains(err.Error(), "identity not whitelisted") {
-			http.Error(w, err.Error(), http.StatusUnauthorized)
-		} else if strings.Contains(err.Error(), "invalid") {
+		if strings.Contains(err.Error(), "invalid") {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		} else {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -296,16 +294,16 @@ func (h *Handler) handleRegister(ctx context.Context, attestationType string, me
 		return nil, nil, nil, fmt.Errorf("identity computation error: %w", err)
 	}
 
-	// Check if identity is whitelisted
-	isWhitelisted, err := registry.IsWhitelisted(identity)
+	// Get config template hash for this identity. This also makes sure the identity is whitelisted.
+	configTemplateHash, err := registry.IdentityConfigMap(identity)
 	if err != nil {
-		h.log.Error("Failed to check if identity is whitelisted", "err", err, slog.String("identity", string(identity[:])))
-		return nil, nil, nil, fmt.Errorf("whitelist check error: %w", err)
+		h.log.Error("Failed to get config template hash", "err", err, slog.String("identity", string(identity[:])))
+		return nil, nil, nil, fmt.Errorf("config lookup error: %w", err)
 	}
 
-	if !isWhitelisted {
-		h.log.Warn("Identity not whitelisted", slog.String("identity", string(identity[:])))
-		return nil, nil, nil, errors.New("identity not whitelisted")
+	if configTemplateHash == [32]byte{} {
+		h.log.Error("No config template assigned to identity", slog.String("identity", string(identity[:])))
+		return nil, nil, nil, errors.New("no config template assigned to identity")
 	}
 
 	// Get application private key for this contract
@@ -320,18 +318,6 @@ func (h *Handler) handleRegister(ctx context.Context, attestationType string, me
 	if err != nil {
 		h.log.Error("Failed to sign CSR", "err", err, slog.String("contractAddress", string(contractAddr[:])))
 		return nil, nil, nil, fmt.Errorf("certificate signing error: %w", err)
-	}
-
-	// Get config template hash for this identity
-	configTemplateHash, err := registry.IdentityConfigMap(identity)
-	if err != nil {
-		h.log.Error("Failed to get config template hash", "err", err, slog.String("identity", string(identity[:])))
-		return nil, nil, nil, fmt.Errorf("config lookup error: %w", err)
-	}
-
-	if configTemplateHash == [32]byte{} {
-		h.log.Error("No config template assigned to identity", slog.String("identity", string(identity[:])))
-		return nil, nil, nil, errors.New("no config template assigned to identity")
 	}
 
 	// Get all storage backends from registry

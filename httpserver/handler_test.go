@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -72,7 +73,6 @@ func TestHandleRegister_Success(t *testing.T) {
 	// Setup mock expectations for registry
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
 	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
-	mockRegistry.On("IsWhitelisted", identity).Return(true, nil)
 	mockRegistry.On("IdentityConfigMap", identity).Return([32]byte(configHash), nil)
 	mockRegistry.On("AllStorageBackends").Return([]string{fileBackend.LocationURI()}, nil)
 
@@ -165,7 +165,7 @@ func TestHandleRegister_IdentityNotWhitelisted(t *testing.T) {
 	// Setup mock expectations for failure case
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
 	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
-	mockRegistry.On("IsWhitelisted", identity).Return(false, nil)
+	mockRegistry.On("IdentityConfigMap", identity).Return([32]byte{}, errors.New("No mapping"))
 
 	// Create handler
 	handler := NewHandler(kmsInstance, storageFactory, mockRegistryFactory, logger)
@@ -207,11 +207,11 @@ func TestHandleRegister_IdentityNotWhitelisted(t *testing.T) {
 	resp := w.Result()
 	defer resp.Body.Close()
 
-	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
-	assert.Contains(t, string(body), "identity not whitelisted")
+	assert.Contains(t, string(body), "config lookup error")
 
 	// Verify expectations
 	mockRegistryFactory.AssertExpectations(t)
@@ -350,7 +350,6 @@ func TestConfigReferenceResolution(t *testing.T) {
 	// Set up mock expectations
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
 	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
-	mockRegistry.On("IsWhitelisted", identity).Return(true, nil)
 	mockRegistry.On("IdentityConfigMap", identity).Return([32]byte(templateHash), nil)
 	mockRegistry.On("AllStorageBackends").Return([]string{fileBackend.LocationURI()}, nil)
 
@@ -535,7 +534,6 @@ func TestServerSideDecryption(t *testing.T) {
 
 	// Setup mock expectations
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
-	mockRegistry.On("IsWhitelisted", identity).Return(true, nil)
 	mockRegistry.On("IdentityConfigMap", identity).Return([32]byte(configHash), nil)
 	mockRegistry.On("AllStorageBackends").Return([]string{fileBackend.LocationURI()}, nil)
 	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
@@ -669,7 +667,6 @@ func TestComplexConfigWithServerDecryption(t *testing.T) {
 
 	// Setup mock expectations
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
-	mockRegistry.On("IsWhitelisted", identity).Return(true, nil)
 	mockRegistry.On("IdentityConfigMap", identity).Return([32]byte(configHash), nil)
 	mockRegistry.On("AllStorageBackends").Return([]string{fileBackend.LocationURI()}, nil)
 	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
@@ -785,7 +782,6 @@ func TestDecryptionFailure(t *testing.T) {
 
 	// Setup mock expectations
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
-	mockRegistry.On("IsWhitelisted", identity).Return(true, nil)
 	mockRegistry.On("IdentityConfigMap", identity).Return([32]byte(configHash), nil)
 	mockRegistry.On("AllStorageBackends").Return([]string{fileBackend.LocationURI()}, nil)
 	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
@@ -870,7 +866,6 @@ func TestNonJSONSecret(t *testing.T) {
 
 	// Setup mock expectations
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
-	mockRegistry.On("IsWhitelisted", identity).Return(true, nil)
 	mockRegistry.On("IdentityConfigMap", identity).Return([32]byte(configHash), nil)
 	mockRegistry.On("AllStorageBackends").Return([]string{fileBackend.LocationURI()}, nil)
 	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)

@@ -5,58 +5,56 @@ import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-// IIdentityRegistry - For identity verification and management
-interface IIdentityRegistry {
-    function isWhitelisted(bytes32 identity) external view returns (bool);
-    function computeDCAPIdentity(DCAPReport memory report) external view returns (bytes32);
-    function computeMAAIdentity(MAAReport memory report) external view returns (bytes32);
-    function removeWhitelistedIdentity(bytes32 identity) external returns (bool);
+struct DCAPEvent {
+	uint32 Index;
+	uint32 EventType;
+	bytes EventPayload;
+	bytes32 Digest;
 }
 
-// IConfigRegistry - For configuration management
-interface IConfigRegistry {
-    function getConfig(bytes32 configHash) external view returns (bytes);
-    function addConfig(bytes memory data) external returns (bytes32);
-    function identityConfigMap(bytes32 identity) external view returns (bytes32);
-    function setConfigForDCAP(DCAPReport memory report, bytes32 configHash) external;
-    function setConfigForMAA(MAAReport memory report, bytes32 configHash) external;
+struct DCAPReport {
+	bytes32 mrTd;          // Measurement register for TD
+	bytes32[4] RTMRs;      // Runtime measurement registers
+	bytes32 mrOwner;       // Measurement register for owner
+	bytes32 mrConfigId;    // Measurement register for config ID
+	bytes32 mrConfigOwner; // Measurement register for config owner
 }
 
-// ISecretRegistry - For secret management
-interface ISecretRegistry {
-    function getSecret(bytes32 secretHash) external view returns (bytes);
-    function addSecret(bytes memory data) external returns (bytes32);
+struct MAAReport {
+	bytes32[24] PCRs;
 }
 
-// IPKIRegistry - For PKI management
-interface IPKIRegistry {
-    function getPKI() external view returns (AppPKI memory);
-    function setPKI(AppPKI memory pki) external;
+struct AppPKI {
+	bytes ca;
+	bytes pubkey;
+	bytes attestation;
 }
 
-// IStorageRegistry - For storage backend management
-interface IStorageRegistry {
+// Interface needed by the provisioning backend
+interface IRegistry {
+    // Identity computation from attestation reports
+    function DCAPIdentity(DCAPReport memory report, DCAPEvent[] memory eventLog) external view returns (bytes32);
+    function MAAIdentity(MAAReport memory report) external view returns (bytes32);
+
+    // Configuration mapping for identity
+    function getConfigForIdentity(bytes32 identity) external view returns (bytes32);
+
+    // Storage backend management
     function allStorageBackends() external view returns (string[] memory);
-    function addStorageBackend(string memory locationURI) external;
-    function removeStorageBackend(string memory locationURI) external;
-}
 
-// IDomainRegistry - For domain name management
-interface IDomainRegistry {
-    function allInstanceDomainNames() external view returns (string[] memory);
-    function registerInstanceDomainName(string memory domain) external;
-}
+    // Optional: If artifacts are stored on-chain
+    function getArtifact(bytes32 artifactHash) external view returns (bytes memory);
 
-// IRegistry - Aggregating interface that inherits all specialized interfaces
-interface IRegistry is IIdentityRegistry, IConfigRegistry, ISecretRegistry,
-                      IPKIRegistry, IStorageRegistry, IDomainRegistry {}
+    // Optional: PKI information
+    function getPKI() external view returns (AppPKI memory);
+}
 
 /**
  * @title Registry
  * @dev A contract for managing trusted execution environment (TEE) identities and configurations
  * using Intel DCAP attestation.
  */
-contract Registry is AccessControl, Ownable, ReentrancyGuard {
+contract Registry is AccessControl, Ownable, ReentrancyGuard, IRegistry {
     // Define roles as bytes32 constants
     bytes32 public constant ROLE_OPERATOR = keccak256("ROLE_OPERATOR");
     bytes32 public constant ROLE_METADATA = keccak256("ROLE_METADATA");
@@ -65,58 +63,24 @@ contract Registry is AccessControl, Ownable, ReentrancyGuard {
     // Maximum size for byte arrays to prevent DoS attacks
     uint256 public constant MAX_BYTES_SIZE = 20 * 1024; // 20KB limit
 
-	struct DCAPEvent {
-		uint32 Index;
-		uint32 EventType;
-		bytes EventPayload;
-		bytes32 Digest;
-	}
-
-    struct DCAPReport {
-        bytes32 mrTd;          // Measurement register for TD
-        bytes32[4] RTMRs;      // Runtime measurement registers
-        bytes32 mrOwner;       // Measurement register for owner
-        bytes32 mrConfigId;    // Measurement register for config ID
-        bytes32 mrConfigOwner; // Measurement register for config owner
-    }
-
-    struct MAAReport {
-        bytes32[24] PCRs;
-    }
-
-	struct AppPKI {
-		bytes ca;
-		bytes pubkey;
-		bytes attestation;
-	}
-
     // State variables
     string[] public instanceDomainNames;
 	AppPKI public app_pki;
 
-    // Maps config hash to config data for onchain DA
-    mapping(bytes32 => bytes) public configs;
-    // Maps secret hash to encrypted secret data
-    mapping(bytes32 => bytes) public encryptedSecrets;
 	// Notes config and secrets locations
 	string[] public storageBackends;
+    // Maps config hash to config data and secrets for onchain DA
+    mapping(bytes32 => bytes) public artifacts;
     // Maps identity to config hash
     mapping(bytes32 => bytes32) public identityConfigMap;
-    // Maps identity hash directly to whitelisted status for efficient lookup
-    mapping(bytes32 => bool) public whitelistedIdentities;
-    // List of registered identity hashes
-    bytes32[] public registeredIdentities;
 
     // Events
     event InstanceDomainRegistered(string domain, address registrar);
 	event StorageBackendSet(string location, address setter);
 	event StorageBackendRemoved(string location, address remover);
-    event ConfigAdded(bytes32 configHash, address adder);
-    event SecretAdded(bytes32 secretHash, address adder);
+    event ArtifactAdded(bytes32 configHash, address adder);
     event PKIUpdated(address updater, AppPKI pki);
     event IdentityConfigSet(bytes32 identity, bytes32 configHash, address setter);
-    event RegistryPaused(address pauser);
-    event RegistryUnpaused(address unpauser);
 
     /**
      * @dev Constructor to set up initial roles.
@@ -153,7 +117,7 @@ contract Registry is AccessControl, Ownable, ReentrancyGuard {
 	}
 
     /**
-     * @dev Set PKI attestation
+     * @dev Set PKI and its attestation
      * @param pki The PKI (certificate authority, encryption pubkey, kms attestation)
      */
     function setPKI(AppPKI memory pki)
@@ -166,6 +130,10 @@ contract Registry is AccessControl, Ownable, ReentrancyGuard {
 		app_pki = pki;
         emit PKIUpdated(msg.sender, pki);
     }
+
+    function getPKI() external view returns (AppPKI memory) {
+		return app_pki;
+	}
 
 	// Add a new content location or update an existing one
 	function setStorageBackend(
@@ -208,38 +176,34 @@ contract Registry is AccessControl, Ownable, ReentrancyGuard {
 	}
 
     /**
-     * @dev Add a new configuration
-     * @param data The configuration data
-     * @return configHash The hash of the added configuration
+     * @dev Add a new onchain artifact
+     * @param data The data to store (configuration or encrypted secret)
+     * @return artifactHash The hash of the added artifact
      */
-    function addConfig(bytes memory data) 
+    function addArtifact(bytes memory data) 
         public 
         onlyRole(ROLE_METADATA) 
         limitBytesSize(data)
-        returns (bytes32 configHash) 
+        returns (bytes32 artifactHash) 
     {
-        configHash = keccak256(data);
-        configs[configHash] = data;
-        emit ConfigAdded(configHash, msg.sender);
-        return configHash;
+        artifactHash = keccak256(data);
+        artifacts[artifactHash] = data;
+        emit ArtifactAdded(artifactHash, msg.sender);
+        return artifactHash;
     }
 
     /**
-     * @dev Add an encrypted secret
-     * @param data The encrypted secret data
-     * @return secretHash The hash of the added secret
+     * @dev Fetch an artifact
+     * @param artifactHash The object to fetch
      */
-    function addSecret(bytes memory data) 
-        public 
-        onlyRole(ROLE_METADATA) 
-        limitBytesSize(data)
-        returns (bytes32 secretHash) 
+    function getArtifact(bytes32 artifactHash) 
+        external view
+        returns (bytes memory data) 
     {
-        secretHash = keccak256(data);
-        encryptedSecrets[secretHash] = data;
-        emit SecretAdded(secretHash, msg.sender);
-        return secretHash;
+        require(artifacts[artifactHash].length > 0, "Artifact does not exist");
+        return artifacts[artifactHash];
     }
+        
 
     /**
      * @dev Calculate DCAP identity from a report
@@ -278,8 +242,6 @@ contract Registry is AccessControl, Ownable, ReentrancyGuard {
         onlyOwner 
         nonReentrant
     {
-        require(configs[configHash].length > 0, "Config does not exist");
-        
         bytes32 identity = DCAPIdentity(report, eventLog);
 		setConfigForIdentity(identity, configHash);
     }
@@ -294,8 +256,6 @@ contract Registry is AccessControl, Ownable, ReentrancyGuard {
         onlyOwner 
         nonReentrant
     {
-        require(configs[configHash].length > 0, "Config does not exist");
-        
         bytes32 identity = MAAIdentity(report);
 		setConfigForIdentity(identity, configHash);
     }
@@ -303,39 +263,27 @@ contract Registry is AccessControl, Ownable, ReentrancyGuard {
 	function setConfigForIdentity(bytes32 identity, bytes32 configHash)
 		private
 	{
-        // Add to array only if not already added
-        if (!whitelistedIdentities[identity]) {
-            registeredIdentities.push(identity);
-            whitelistedIdentities[identity] = true;
-        }
-        
         identityConfigMap[identity] = configHash;
         emit IdentityConfigSet(identity, configHash, msg.sender);
 	}
 
     /**
-     * @dev Remove a whitelisted identity
+     * @dev Return config id for an identity
+     * @param identity The identity
+     */
+    function getConfigForIdentity(bytes32 identity) external view returns (bytes32) {
+		require(identityConfigMap[identity] != bytes32(0), "Config not mapped");
+		return identityConfigMap[identity];
+	}
+
+    /**
+     * @dev Remove a config mapping for identity
      * @param identity The identity hash to remove
      */
-    function removeWhitelistedIdentity(bytes32 identity)
+    function removeConfigMapForIdentity(bytes32 identity)
         public
         onlyOwner
     {
-        require(whitelistedIdentities[identity], "Identity not whitelisted");
-        
-        // Remove from the mapping
-        whitelistedIdentities[identity] = false;
-        
-        // Remove from the array by replacing with last element
-        for (uint i = 0; i < registeredIdentities.length; i++) {
-            if (registeredIdentities[i] == identity) {
-                registeredIdentities[i] = registeredIdentities[registeredIdentities.length - 1];
-                registeredIdentities.pop();
-                break;
-            }
-        }
-        
-        // Clean up related mappings
         delete identityConfigMap[identity];
     }
 }

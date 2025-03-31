@@ -81,19 +81,8 @@ func (b *VaultBackend) Fetch(ctx context.Context, id interfaces.ContentID, conte
 	start := time.Now()
 	contentIDStr := hex.EncodeToString(id[:])
 
-	// Construct path based on content type
-	var typeStr string
-	switch contentType {
-	case interfaces.ConfigType:
-		typeStr = "config"
-	case interfaces.SecretType:
-		typeStr = "secret"
-	default:
-		return nil, fmt.Errorf("unsupported content type: %v", contentType)
-	}
-
 	// Vault KV v2 path structure
-	path := fmt.Sprintf("%s/data/%s/%s/%s", b.mountPath, b.dataPath, typeStr, contentIDStr)
+	path := fmt.Sprintf("%s/data/%s/%s", b.mountPath, b.dataPath, contentIDStr)
 
 	// Read from Vault
 	secret, err := b.client.Logical().ReadWithContext(ctx, path)
@@ -156,19 +145,8 @@ func (b *VaultBackend) Store(ctx context.Context, data []byte, contentType inter
 	id := interfaces.ContentID(hash)
 	contentIDStr := hex.EncodeToString(id[:])
 
-	// Construct path based on content type
-	var typeStr string
-	switch contentType {
-	case interfaces.ConfigType:
-		typeStr = "config"
-	case interfaces.SecretType:
-		typeStr = "secret"
-	default:
-		return id, fmt.Errorf("unsupported content type: %v", contentType)
-	}
-
 	// Vault KV v2 path structure
-	path := fmt.Sprintf("%s/data/%s/%s/%s", b.mountPath, b.dataPath, typeStr, contentIDStr)
+	path := fmt.Sprintf("%s/data/%s/%s", b.mountPath, b.dataPath, contentIDStr)
 
 	// Prepare data for Vault (KV v2 format)
 	secretData := map[string]interface{}{

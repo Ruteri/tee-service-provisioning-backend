@@ -2,12 +2,11 @@ package storage
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"log/slog"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
 
@@ -31,18 +30,7 @@ func NewOnchainBackend(registry interfaces.OnchainRegistry, contractAddr interfa
 
 // Fetch retrieves data from the blockchain by its content identifier and type.
 func (b *OnchainBackend) Fetch(ctx context.Context, id interfaces.ContentID, contentType interfaces.ContentType) ([]byte, error) {
-	var data []byte
-	var err error
-
-	switch contentType {
-	case interfaces.ConfigType:
-		data, err = b.registry.GetConfig(id)
-	case interfaces.SecretType:
-		data, err = b.registry.GetSecret(id)
-	default:
-		return nil, fmt.Errorf("unsupported content type: %v", contentType)
-	}
-
+	data, err := b.registry.GetArtifact(id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch data from chain: %w", err)
 	}
@@ -61,22 +49,10 @@ func (b *OnchainBackend) Fetch(ctx context.Context, id interfaces.ContentID, con
 // Store saves data to the blockchain and returns its content identifier.
 func (b *OnchainBackend) Store(ctx context.Context, data []byte, contentType interfaces.ContentType) (interfaces.ContentID, error) {
 	// Generate content ID by hashing the data
-	hash := sha256.Sum256(data)
+	hash := crypto.Keccak256Hash(data)
 	id := interfaces.ContentID(hash)
 
-	var storedID [32]byte
-	var tx *types.Transaction
-	var err error
-
-	switch contentType {
-	case interfaces.ConfigType:
-		storedID, tx, err = b.registry.AddConfig(data)
-	case interfaces.SecretType:
-		storedID, tx, err = b.registry.AddSecret(data)
-	default:
-		return id, fmt.Errorf("unsupported content type: %v", contentType)
-	}
-
+	storedID, tx, err := b.registry.AddArtifact(data)
 	if err != nil {
 		return id, fmt.Errorf("failed to store data on chain: %w", err)
 	}

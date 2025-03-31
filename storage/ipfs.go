@@ -21,7 +21,6 @@ type IPFSBackend struct {
 	host        string
 	port        string
 	useGateway  bool
-	prefixes    map[interfaces.ContentType]string
 	log         *slog.Logger
 	locationURI string
 }
@@ -45,10 +44,6 @@ func NewIPFSBackend(host, port string, useGateway bool, timeout string, log *slo
 		host:       host,
 		port:       port,
 		useGateway: useGateway,
-		prefixes: map[interfaces.ContentType]string{
-			interfaces.ConfigType: "config",
-			interfaces.SecretType: "secret",
-		},
 		log:         log,
 		locationURI: uri,
 	}, nil
@@ -154,7 +149,6 @@ func (b *IPFSBackend) LocationURI() string {
 
 // getIPFSPath generates an IPFS path based on content ID and type.
 func (b *IPFSBackend) getIPFSPath(id interfaces.ContentID, contentType interfaces.ContentType) string {
-	prefix := b.prefixes[contentType]
 	idStr := fmt.Sprintf("%x", id)
-	return fmt.Sprintf("/ipfs/%s-%s", prefix, idStr)
+	return fmt.Sprintf("/ipfs/%s", idStr)
 }
