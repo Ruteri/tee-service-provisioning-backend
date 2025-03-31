@@ -1,4 +1,4 @@
-module github.com/ruteri/poc-tee-registry
+module github.com/ruteri/tee-service-provisioning-backend
 
 go 1.24.0
 

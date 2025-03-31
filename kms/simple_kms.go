@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ruteri/poc-tee-registry/interfaces"
+	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
 
 // SimpleKMS provides a straightforward implementation of the KMS interface.

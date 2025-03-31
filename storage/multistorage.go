@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ruteri/poc-tee-registry/interfaces"
+	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
 
 // MultiStorageBackend implements a storage backend that aggregates multiple backends.

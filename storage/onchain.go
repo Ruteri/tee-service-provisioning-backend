@@ -8,7 +8,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ruteri/poc-tee-registry/interfaces"
+	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
 
 // OnchainBackend implements a storage backend using the Ethereum blockchain via a Registry contract.

@@ -15,7 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/ruteri/poc-tee-registry/interfaces"
+	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
 
 // S3Backend implements a storage backend using Amazon S3 or compatible services.

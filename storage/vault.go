@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/vault/api"
-	"github.com/ruteri/poc-tee-registry/interfaces"
+	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
 
 // VaultBackend implements a storage backend using HashiCorp Vault.

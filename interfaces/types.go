@@ -4,7 +4,7 @@ package interfaces
 
 import (
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ruteri/poc-tee-registry/bindings/registry"
+	"github.com/ruteri/tee-service-provisioning-backend/bindings/registry"
 )
 
 // TLSCSR represents a TLS Certificate Signing Request in PEM format.

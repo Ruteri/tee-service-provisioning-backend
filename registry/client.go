@@ -11,8 +11,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 
-	"github.com/ruteri/poc-tee-registry/bindings/registry"
-	"github.com/ruteri/poc-tee-registry/interfaces"
+	"github.com/ruteri/tee-service-provisioning-backend/bindings/registry"
+	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
 
 // OnchainRegistryClient implements the interfaces.OnchainRegistry interface for

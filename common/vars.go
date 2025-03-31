@@ -3,5 +3,5 @@ package common
 var Version = "dev"
 
 const (
-	PackageName = "github.com/ruteri/poc-tee-registry"
+	PackageName = "github.com/ruteri/tee-service-provisioning-backend"
 )

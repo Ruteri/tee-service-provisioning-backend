@@ -12,7 +12,7 @@ import (
 	"sync"
 
 	"github.com/hashicorp/vault/shamir"
-	"github.com/ruteri/poc-tee-registry/interfaces"
+	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
 
 // ShamirKMS enhances SimpleKMS with Shamir Secret Sharing for secure master key

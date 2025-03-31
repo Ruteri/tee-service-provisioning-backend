@@ -11,7 +11,7 @@ import (
 	"time"
 
 	shell "github.com/ipfs/go-ipfs-api"
-	"github.com/ruteri/poc-tee-registry/interfaces"
+	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
 
 // IPFSBackend implements a storage backend using the InterPlanetary File System (IPFS).

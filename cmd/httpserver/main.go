@@ -13,12 +13,12 @@ import (
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/google/uuid"
-	"github.com/ruteri/poc-tee-registry/common"
-	"github.com/ruteri/poc-tee-registry/httpserver"
-	"github.com/ruteri/poc-tee-registry/interfaces"
-	"github.com/ruteri/poc-tee-registry/kms"
-	"github.com/ruteri/poc-tee-registry/registry"
-	"github.com/ruteri/poc-tee-registry/storage"
+	"github.com/ruteri/tee-service-provisioning-backend/common"
+	"github.com/ruteri/tee-service-provisioning-backend/httpserver"
+	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
+	"github.com/ruteri/tee-service-provisioning-backend/kms"
+	"github.com/ruteri/tee-service-provisioning-backend/registry"
+	"github.com/ruteri/tee-service-provisioning-backend/storage"
 	"github.com/urfave/cli/v2"
 )
 

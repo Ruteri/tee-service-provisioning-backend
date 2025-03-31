@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ruteri/poc-tee-registry/interfaces"
+	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
 
 // GitHubBackend implements a read-only storage backend using GitHub's Git blob API.

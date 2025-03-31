@@ -17,8 +17,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/ruteri/poc-tee-registry/cryptoutils"
-	"github.com/ruteri/poc-tee-registry/interfaces"
+	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
+	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
 
 // Header constants used in HTTP requests and responses.

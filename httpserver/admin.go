@@ -27,8 +27,8 @@ import (
 	"sync"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/ruteri/poc-tee-registry/cryptoutils"
-	"github.com/ruteri/poc-tee-registry/kms"
+	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
+	"github.com/ruteri/tee-service-provisioning-backend/kms"
 )
 
 // BootstrapState represents the current state of the KMS bootstrap process.

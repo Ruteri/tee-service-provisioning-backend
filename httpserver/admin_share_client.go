@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ruteri/poc-tee-registry/cryptoutils"
+	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 )
 
 // AdminShareClient provides methods for securely retrieving and submitting shares.

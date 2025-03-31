@@ -2,7 +2,7 @@ package registry
 
 import (
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ruteri/poc-tee-registry/interfaces"
+	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 	"github.com/stretchr/testify/mock"
 )
 

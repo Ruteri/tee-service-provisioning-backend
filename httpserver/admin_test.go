@@ -22,8 +22,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/ruteri/poc-tee-registry/cryptoutils"
-	"github.com/ruteri/poc-tee-registry/kms"
+	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
+	"github.com/ruteri/tee-service-provisioning-backend/kms"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
