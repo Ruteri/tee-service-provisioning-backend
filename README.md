@@ -1,5 +1,7 @@
 # TEE Registry System
 
+> **WARNING**: This project is mostly AI-generated and not yet reviewed!
+
 A decentralized provisioning system for Trusted Execution Environment (TEE) services with robust identity verification, configuration management, and secure secret handling.
 
 ## Overview
