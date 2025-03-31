@@ -5,6 +5,52 @@ import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
+// IIdentityRegistry - For identity verification and management
+interface IIdentityRegistry {
+    function isWhitelisted(bytes32 identity) external view returns (bool);
+    function computeDCAPIdentity(DCAPReport memory report) external view returns (bytes32);
+    function computeMAAIdentity(MAAReport memory report) external view returns (bytes32);
+    function removeWhitelistedIdentity(bytes32 identity) external returns (bool);
+}
+
+// IConfigRegistry - For configuration management
+interface IConfigRegistry {
+    function getConfig(bytes32 configHash) external view returns (bytes);
+    function addConfig(bytes memory data) external returns (bytes32);
+    function identityConfigMap(bytes32 identity) external view returns (bytes32);
+    function setConfigForDCAP(DCAPReport memory report, bytes32 configHash) external;
+    function setConfigForMAA(MAAReport memory report, bytes32 configHash) external;
+}
+
+// ISecretRegistry - For secret management
+interface ISecretRegistry {
+    function getSecret(bytes32 secretHash) external view returns (bytes);
+    function addSecret(bytes memory data) external returns (bytes32);
+}
+
+// IPKIRegistry - For PKI management
+interface IPKIRegistry {
+    function getPKI() external view returns (AppPKI memory);
+    function setPKI(AppPKI memory pki) external;
+}
+
+// IStorageRegistry - For storage backend management
+interface IStorageRegistry {
+    function allStorageBackends() external view returns (string[] memory);
+    function addStorageBackend(string memory locationURI) external;
+    function removeStorageBackend(string memory locationURI) external;
+}
+
+// IDomainRegistry - For domain name management
+interface IDomainRegistry {
+    function allInstanceDomainNames() external view returns (string[] memory);
+    function registerInstanceDomainName(string memory domain) external;
+}
+
+// IRegistry - Aggregating interface that inherits all specialized interfaces
+interface IRegistry is IIdentityRegistry, IConfigRegistry, ISecretRegistry,
+                      IPKIRegistry, IStorageRegistry, IDomainRegistry {}
+
 /**
  * @title Registry
  * @dev A contract for managing trusted execution environment (TEE) identities and configurations
