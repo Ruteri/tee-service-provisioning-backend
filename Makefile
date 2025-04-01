@@ -100,12 +100,7 @@ bindings: ## Generate golang bindings for the contract
 	jq -r '.bytecode.object' out/OnchainRegistry.sol/Registry.json > Registry.bin
 	abigen --abi=Registry.abi --bin=Registry.bin --pkg=registry --out=bindings/registry/registry.go
 
-.PHONY: doc
-doc: ## Generate godoc for all files
-	go doc -all interfaces > doc_interfaces.md
-	go doc -all storage > doc_storage.md
-	go doc -all registry > doc_registry.md
-	go doc -all kms > doc_kms.md
-	go doc -all httpserver > doc_httpserver.md
-	go doc -all cryptoutils > doc_cryptoutils.md
-	go doc -all bindings/registry > doc_registry_bindings.md
+.PHONY: context
+context: ## Generate godoc for all files
+	# Needs `go install github.com/ruteri/gocontext@latest`
+	gocontext -verbose
