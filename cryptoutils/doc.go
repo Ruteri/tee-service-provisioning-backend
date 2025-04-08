@@ -15,13 +15,19 @@
 //   - AES-GCM for symmetric encryption with authenticated encryption
 //   - Unique ephemeral keys for each encryption operation
 //
-// # Key Functions
+// Key Functions:
 //
-// # EncryptWithPublicKey - Encrypts data using a public key in PEM format
+// EncryptWithPublicKey encrypts data using a public key in PEM format.
 //
-// # DecryptWithPrivateKey - Decrypts data using a private key in PEM format
+// DecryptWithPrivateKey decrypts data using a private key in PEM format.
 //
-// # Encryption Format
+// VerifyCertificate validates that a certificate matches a given private key and has the expected common name.
+//
+// CreateCSRWithRandomKey generates a new keypair and certificate signing request with the specified common name.
+//
+// DeriveDiskKey creates a deterministic encryption key from a CSR and secret using Argon2id KDF.
+//
+// Encryption Format:
 //
 // The encrypted data follows this binary format:
 //
@@ -33,7 +39,7 @@
 //   - IV: 12-byte nonce for AES-GCM
 //   - Ciphertext: The encrypted data with GCM authentication tag
 //
-// # Security Considerations
+// Security Considerations:
 //
 // This package implements several security best practices:
 //
@@ -48,7 +54,7 @@
 //   - Data encrypted with a public key can only be decrypted with the corresponding private key
 //   - Error messages are intentionally vague to prevent leaking information
 //
-// # Usage Example
+// Usage Example:
 //
 //	// Get public key from PKI (typically from KMS)
 //	publicKeyPEM := pki.Pubkey

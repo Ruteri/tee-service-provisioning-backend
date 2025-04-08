@@ -2,6 +2,8 @@ package httpserver
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
@@ -30,9 +32,6 @@ const (
 	// MeasurementHeader contains a JSON-encoded map of measurement values.
 	// Format: {"0":"00", "1":"01", ...} mapping register index to hex value.
 	MeasurementHeader = "X-Flashbots-Measurement"
-
-	// ContractAddrHeader specifies the contract address (alternative to URL path parameter).
-	ContractAddrHeader = "X-Flashbots-Contract-Address"
 
 	// Supported attestation types
 	azureTDX = "azure-tdx" // Azure confidential computing with TDX
@@ -337,18 +336,28 @@ func (h *Handler) handleRegister(ctx context.Context, attestationType string, me
 		// TODO: cache and move to a standalone structure
 
 		// Note: reusing app privkey here, might not be secure
+		tmpPrivateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			return tls.Certificate{}, err
+		}
+
+		tmpKeyBytes, err := x509.MarshalPKCS8PrivateKey(tmpPrivateKey)
+		if err != nil {
+			return tls.Certificate{}, err
+		}
+
+		keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: tmpKeyBytes})
 
 		// Create a CSR template
 		csrTemplate := x509.CertificateRequest{
 			Subject: pkix.Name{
-				CommonName:   "test.example.com",
-				Organization: []string{"Test Organization"},
+				CommonName: fmt.Sprintf("%x.app", contractAddr),
 			},
 			SignatureAlgorithm: x509.ECDSAWithSHA256,
 		}
 
 		// Create a CSR using the private key and template
-		csrDER, err := x509.CreateCertificateRequest(rand.Reader, &csrTemplate, appPrivkey)
+		csrDER, err := x509.CreateCertificateRequest(rand.Reader, &csrTemplate, tmpPrivateKey)
 		if err != nil {
 			return tls.Certificate{}, err
 		}
@@ -361,7 +370,7 @@ func (h *Handler) handleRegister(ctx context.Context, attestationType string, me
 			return tls.Certificate{}, err
 		}
 
-		return tls.X509KeyPair(tlsCert, appPrivkey)
+		return tls.X509KeyPair(tlsCert, keyPEM)
 	}
 
 	// Create multi-storage backend

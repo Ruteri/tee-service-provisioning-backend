@@ -11,9 +11,10 @@ import (
 
 // MockRegistryClient provides a simple in-memory implementation of the OnchainRegistry
 // interface for testing purposes without requiring a blockchain connection.
+// It stores all registry data in memory and simulates blockchain operations.
 type MockRegistryClient struct {
 	mutex            sync.RWMutex
-	artifacts        map[[32]byte][]byte // Storage for artifacts (configs, secrets, etc.)
+	artifacts        map[[32]byte][]byte   // Storage for artifacts (configs, secrets, etc.)
 	idToArtifact     map[[32]byte][32]byte // Maps identity to artifact hash
 	storageBackends  []string
 	domainNames      []string
@@ -23,6 +24,7 @@ type MockRegistryClient struct {
 
 // NewMockRegistryClient creates a new mock registry client with empty initial state.
 // This implementation uses in-memory maps instead of blockchain transactions.
+// The client starts in a read-only state - call SetTransactOpts to enable transaction operations.
 func NewMockRegistryClient() *MockRegistryClient {
 	return &MockRegistryClient{
 		artifacts:        make(map[[32]byte][]byte),
@@ -34,12 +36,14 @@ func NewMockRegistryClient() *MockRegistryClient {
 }
 
 // SetTransactOpts enables transaction operations on the mock client.
-// While the mock doesn't actually make transactions, this simulates the authorization flow.
+// While the mock doesn't actually make blockchain transactions, this simulates
+// the authorization flow by enabling write operations.
 func (m *MockRegistryClient) SetTransactOpts() {
 	m.allowTransacting = true
 }
 
 // GetPKI returns the mock PKI information or an error if none is set.
+// The PKI includes CA certificate, application public key, and attestation data.
 func (m *MockRegistryClient) GetPKI() (*interfaces.AppPKI, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
@@ -48,6 +52,12 @@ func (m *MockRegistryClient) GetPKI() (*interfaces.AppPKI, error) {
 		return nil, errors.New("no PKI configured")
 	}
 	return m.pki, nil
+}
+
+// RegisterPKI registers PKI information with the mock registry.
+// This method is specific to the mock implementation and not part of the OnchainRegistry interface.
+func (m *MockRegistryClient) RegisterPKI(pki *interfaces.AppPKI) {
+	m.pki = pki
 }
 
 // AddArtifact adds a new artifact to the mock registry and returns its hash.
@@ -90,6 +100,7 @@ func (m *MockRegistryClient) ComputeMAAIdentity(report *interfaces.MAAReport) ([
 }
 
 // IdentityConfigMap gets the artifact hash assigned to an identity in the mock registry.
+// Returns the artifact hash or an error if no mapping exists for the provided identity.
 func (m *MockRegistryClient) IdentityConfigMap(identity [32]byte) ([32]byte, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
@@ -102,6 +113,7 @@ func (m *MockRegistryClient) IdentityConfigMap(identity [32]byte) ([32]byte, err
 }
 
 // AllStorageBackends returns all registered storage backends from the mock registry.
+// These backends represent storage locations where artifacts can be stored and retrieved.
 func (m *MockRegistryClient) AllStorageBackends() ([]string, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
@@ -178,6 +190,7 @@ func (m *MockRegistryClient) RegisterInstanceDomainName(domain string) (*types.T
 }
 
 // AllInstanceDomainNames retrieves all registered instance domain names from the mock registry.
+// These domain names represent endpoints where TEE instances can be accessed.
 func (m *MockRegistryClient) AllInstanceDomainNames() ([]string, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
@@ -190,6 +203,7 @@ func (m *MockRegistryClient) AllInstanceDomainNames() ([]string, error) {
 }
 
 // GetArtifact retrieves an artifact by its hash from the mock registry.
+// Returns the artifact data or an error if the artifact doesn't exist.
 func (m *MockRegistryClient) GetArtifact(artifactHash [32]byte) ([]byte, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()

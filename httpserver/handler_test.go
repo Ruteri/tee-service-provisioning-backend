@@ -7,7 +7,6 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
@@ -80,7 +79,7 @@ func TestHandleRegister_Success(t *testing.T) {
 	handler := NewHandler(kmsInstance, storageFactory, mockRegistryFactory, logger)
 
 	// Create test CSR
-	csr, err := createTestCSR()
+	_, csr, err := cryptoutils.CreateCSRWithRandomKey("test.app")
 	require.NoError(t, err)
 
 	// Create request with contract address in URL
@@ -171,7 +170,7 @@ func TestHandleRegister_IdentityNotWhitelisted(t *testing.T) {
 	handler := NewHandler(kmsInstance, storageFactory, mockRegistryFactory, logger)
 
 	// Create test CSR
-	csr, err := createTestCSR()
+	_, csr, err := cryptoutils.CreateCSRWithRandomKey("test.app")
 	require.NoError(t, err)
 
 	// Create request with contract address in URL
@@ -357,7 +356,7 @@ func TestConfigReferenceResolution(t *testing.T) {
 	handler := NewHandler(kmsInstance, storageFactory, mockRegistryFactory, logger)
 
 	// Create test CSR
-	csr, err := createTestCSR()
+	_, csr, err := cryptoutils.CreateCSRWithRandomKey("test.app")
 	require.NoError(t, err)
 
 	// Create test request
@@ -440,34 +439,6 @@ func TestConfigReferenceResolution(t *testing.T) {
 	mockRegistry.AssertExpectations(t)
 }
 
-// Helper function to create a test CSR
-func createTestCSR() ([]byte, error) {
-	// Generate a new ECDSA private key
-	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create a CSR template
-	csrTemplate := x509.CertificateRequest{
-		Subject: pkix.Name{
-			CommonName:   "test.example.com",
-			Organization: []string{"Test Organization"},
-		},
-		SignatureAlgorithm: x509.ECDSAWithSHA256,
-	}
-
-	// Create a CSR using the private key and template
-	csrDER, err := x509.CreateCertificateRequest(rand.Reader, &csrTemplate, privateKey)
-	if err != nil {
-		return nil, err
-	}
-
-	// Encode the CSR in PEM format
-	csrPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER})
-	return csrPEM, nil
-}
-
 // TestServerSideDecryption tests that pre-encrypted secrets are correctly
 // decrypted by the handler and included as plaintext in the config
 func TestServerSideDecryption(t *testing.T) {
@@ -544,7 +515,7 @@ func TestServerSideDecryption(t *testing.T) {
 	// Create test request data
 	attestationType := qemuTDX
 	measurements := map[string]string{"0": "00", "1": "01"}
-	csr, err := createTestCSR()
+	_, csr, err := cryptoutils.CreateCSRWithRandomKey("test.app")
 	require.NoError(t, err)
 
 	// Call handleRegister
@@ -677,7 +648,7 @@ func TestComplexConfigWithServerDecryption(t *testing.T) {
 	// Create test request data
 	attestationType := qemuTDX
 	measurements := map[string]string{"0": "00", "1": "01"}
-	csr, err := createTestCSR()
+	_, csr, err := cryptoutils.CreateCSRWithRandomKey("test.app")
 	require.NoError(t, err)
 
 	// Call handleRegister
@@ -792,7 +763,7 @@ func TestDecryptionFailure(t *testing.T) {
 	// Create test request data
 	attestationType := qemuTDX
 	measurements := map[string]string{"0": "00", "1": "01"}
-	csr, err := createTestCSR()
+	_, csr, err := cryptoutils.CreateCSRWithRandomKey("test.app")
 	require.NoError(t, err)
 
 	// Call handleRegister - decryption should fail but not crash
@@ -876,7 +847,7 @@ func TestNonJSONSecret(t *testing.T) {
 	// Create test request data
 	attestationType := qemuTDX
 	measurements := map[string]string{"0": "00", "1": "01"}
-	csr, err := createTestCSR()
+	_, csr, err := cryptoutils.CreateCSRWithRandomKey("test.app")
 	require.NoError(t, err)
 
 	// Call handleRegister
