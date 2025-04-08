@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ruteri/tee-service-provisioning-backend/api"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
@@ -16,7 +17,7 @@ import (
 // secure communication between TEE instances.
 type RegistryAppResolver struct {
 	// registrationProvider handles TEE instance registration and certificate requests
-	registrationProvider RegistrationProvider
+	registrationProvider api.RegistrationProvider
 
 	// registryFactory creates registry clients for different contract addresses
 	registryFactory interfaces.RegistryFactory
@@ -49,7 +50,7 @@ type instanceCacheEntry struct {
 // Returns:
 //   - A configured RegistryAppResolver instance
 func NewRegistryAppResolver(
-	registrationProvider RegistrationProvider,
+	registrationProvider api.RegistrationProvider,
 	registryFactory interfaces.RegistryFactory,
 	cacheTTL time.Duration,
 	log *slog.Logger,
@@ -112,4 +113,31 @@ func (r *RegistryAppResolver) GetCert(contractAddr interfaces.ContractAddress) (
 	}
 
 	return &x509keypair, nil
+}
+
+// LocalKMSRegistrationProvider implements RegistrationProvider using a local KMS.
+// This is useful for testing and development environments without a remote provisioning server.
+type LocalKMSRegistrationProvider struct {
+	// KMS is the key management system used for certificate signing and key generation
+	KMS interfaces.KMS
+}
+
+// Register uses a local KMS to sign the CSR and provide application materials.
+// This implementation doesn't provide configuration, only cryptographic materials.
+func (p *LocalKMSRegistrationProvider) Register(app interfaces.ContractAddress, csr []byte) (*api.RegistrationResponse, error) {
+	cert, err := p.KMS.SignCSR(app, csr)
+	if err != nil {
+		return nil, err
+	}
+
+	appPrivkey, err := p.KMS.GetAppPrivkey(app)
+	if err != nil {
+		return nil, err
+	}
+
+	return &api.RegistrationResponse{
+		AppPrivkey: string(appPrivkey),
+		TLSCert:    string(cert),
+		Config:     "",
+	}, nil
 }

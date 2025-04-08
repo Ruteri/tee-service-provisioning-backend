@@ -147,7 +147,7 @@ func (m *AppCertificateManager) GetConfigForClient(hello *tls.ClientHelloInfo) (
 // It caches CA certificates to avoid repeated registry calls.
 func (m *AppCertificateManager) CACertFor(contractAddr interfaces.ContractAddress) (*x509.Certificate, error) {
 	// Create a key for cache lookup
-	key := fmt.Sprintf("%x", contractAddr)
+	key := contractAddr.String()
 
 	// Check cache first
 	m.caCacheLock.RLock()

@@ -13,8 +13,9 @@ import (
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/google/uuid"
+	"github.com/ruteri/tee-service-provisioning-backend/api/handlers"
+	"github.com/ruteri/tee-service-provisioning-backend/api/servers"
 	"github.com/ruteri/tee-service-provisioning-backend/common"
-	"github.com/ruteri/tee-service-provisioning-backend/httpserver"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 	"github.com/ruteri/tee-service-provisioning-backend/kms"
 	"github.com/ruteri/tee-service-provisioning-backend/registry"
@@ -92,7 +93,7 @@ var flags []cli.Flag = []cli.Flag{
 
 func main() {
 	app := &cli.App{
-		Name:  "httpserver",
+		Name:  "registry-server",
 		Usage: "Serve TEE registry API with secure KMS bootstrapping",
 		Flags: flags,
 		Action: func(cCtx *cli.Context) error {
@@ -137,7 +138,7 @@ func main() {
 			storageFactory := storage.NewStorageBackendFactory(logger, registryFactory)
 
 			// Set up the base HTTP server config
-			cfg := &httpserver.HTTPServerConfig{
+			cfg := &servers.HTTPServerConfig{
 				ListenAddr:               listenAddr,
 				MetricsAddr:              metricsAddr,
 				Log:                      logger,
@@ -150,7 +151,7 @@ func main() {
 
 			// Handle KMS initialization based on type
 			var kmsImpl interfaces.KMS
-			var server *httpserver.Server
+			var server *servers.Server
 
 			switch kmsType {
 			case "simple":
@@ -179,10 +180,10 @@ func main() {
 				logger.Info("SimpleKMS initialized successfully")
 
 				// Create handler with the initialized KMS
-				handler := httpserver.NewHandler(kmsImpl, storageFactory, registryFactory, logger)
+				handler := handlers.NewHandler(kmsImpl, storageFactory, registryFactory, logger)
 
 				// Create server with registry handler
-				server, err = httpserver.New(cfg, handler, kmsImpl)
+				server, err = servers.New(cfg, handler, kmsImpl)
 				if err != nil {
 					logger.Error("Failed to create server", "err", err)
 					return err
@@ -206,7 +207,7 @@ func main() {
 				}
 				defer adminKeysData.Close()
 
-				adminKeys, err := httpserver.LoadAdminKeys(adminKeysData)
+				adminKeys, err := handlers.LoadAdminKeys(adminKeysData)
 				if err != nil {
 					logger.Error("Failed to load admin keys", "err", err)
 					return err
@@ -221,7 +222,7 @@ func main() {
 
 				// Create server in bootstrap mode (registry handler will be added later)
 				// We pass nil for both handler and KMS since they'll be set after bootstrap
-				server, err = httpserver.New(cfg, nil, nil)
+				server, err = servers.New(cfg, nil, nil)
 				if err != nil {
 					logger.Error("Failed to create server", "err", err)
 					return err
@@ -248,7 +249,7 @@ func main() {
 
 				// Now that KMS is bootstrapped, create the registry handler
 				logger.Info("KMS bootstrap completed successfully, creating registry handler")
-				handler := httpserver.NewHandler(shamirKMS, storageFactory, registryFactory, logger)
+				handler := handlers.NewHandler(shamirKMS, storageFactory, registryFactory, logger)
 
 				// Update the server with the new handler
 				server.SetRegistryHandler(handler)

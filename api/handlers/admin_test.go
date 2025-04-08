@@ -1,4 +1,4 @@
-package httpserver
+package handlers
 
 import (
 	"bytes"
@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/ruteri/tee-service-provisioning-backend/api/clients"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 	"github.com/ruteri/tee-service-provisioning-backend/kms"
@@ -67,7 +68,7 @@ func createTestServer(t *testing.T, handler *AdminHandler) *httptest.Server {
 
 // createSignedRequest creates a signed request for testing
 func createSignedRequest(t *testing.T, method, url string, body []byte, adminID string, privateKey *ecdsa.PrivateKey) *http.Request {
-	req, err := CreateSignedAdminRequest(method, url, body, adminID, privateKey)
+	req, err := clients.CreateSignedAdminRequest(method, url, body, adminID, privateKey)
 	require.NoError(t, err, "Failed to create signed request")
 	return req
 }

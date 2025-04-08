@@ -9,8 +9,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/ruteri/tee-service-provisioning-backend/api"
+	"github.com/ruteri/tee-service-provisioning-backend/api/clients"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
-	"github.com/ruteri/tee-service-provisioning-backend/instanceutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 	"github.com/urfave/cli/v2"
 )
@@ -111,7 +112,7 @@ type Provisioner struct {
 	TLSKeyPath     string
 	AppPrivkeyPath string
 
-	RegistrationProvider instanceutils.RegistrationProvider
+	RegistrationProvider api.RegistrationProvider
 }
 
 func NewProvisioner(cCtx *cli.Context) (*Provisioner, error) {
@@ -168,7 +169,7 @@ func NewProvisioner(cCtx *cli.Context) (*Provisioner, error) {
 		TLSCertPath:    tlsCertFile,
 		TLSKeyPath:     tlsKeyFile,
 		AppPrivkeyPath: appKeyFile,
-		RegistrationProvider: &instanceutils.ProvisioningClient{
+		RegistrationProvider: &clients.ProvisioningClient{
 			ServerAddr:                cCtx.String("provisioning-server-addr"),
 			SetAttestationType:        cCtx.String("debug-set-attestation-type-header"),
 			SetAttestationMeasurement: cCtx.String("debug-set-attestation-measurement-header"),

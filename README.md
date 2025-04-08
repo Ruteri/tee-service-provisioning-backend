@@ -91,7 +91,10 @@ The system consists of the following components:
 - **OnchainRegistry**: Smart contract for identity verification and configuration management
 - **KMS**: Key management system for cryptographic operations and secret decryption
 - **StorageBackend**: Content-addressed storage for configurations and secrets
-- **HTTP Server**: API endpoints for TEE registration and configuration retrieval
+- **API Server**: API endpoints for TEE registration and configuration retrieval, split into:
+  - **Handlers**: Request processing and business logic implementation
+  - **Servers**: HTTP server configuration and lifecycle management
+  - **Clients**: Client libraries for API interaction
 
 ## API Endpoints
 
@@ -135,20 +138,29 @@ kmsInstance, _ := kms.NewSimpleKMS(masterKey)
 storageFactory := storage.NewStorageBackendFactory(logger, registryFactory)
 
 // Initialize handler
-handler := httpserver.NewHandler(kmsInstance, storageFactory, registryFactory, logger)
+handler := api.handlers.NewHandler(kmsInstance, storageFactory, registryFactory, logger)
 
 // Create and run server
-server, _ := httpserver.New(cfg, handler)
+serverCfg := &api.servers.ServerConfig{
+    ListenAddr:               ":8080",
+    MetricsAddr:              ":9090",
+    Log:                      logger,
+    DrainDuration:            30 * time.Second,
+    GracefulShutdownDuration: 30 * time.Second,
+    ReadTimeout:              5 * time.Second,
+    WriteTimeout:             10 * time.Second,
+}
+server, _ := api.servers.New(serverCfg, handler)
 server.RunInBackground()
 ```
 
 ### Admin Bootstrap Example
 ```go
 // Load admin public keys from configuration
-adminKeys, _ := httpserver.LoadAdminKeys(configFile)
+adminKeys, _ := api.clients.LoadAdminKeys(configFile)
 
 // Create admin handler
-adminHandler := httpserver.NewAdminHandler(logger, adminKeys)
+adminHandler := api.handlers.NewAdminHandler(logger, adminKeys)
 
 // Set up admin API server
 adminRouter := adminHandler.AdminRouter()
@@ -160,10 +172,25 @@ adminServer := &http.Server{
 // Wait for bootstrap to complete
 ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 defer cancel()
-shamirKMS, err := adminServer.WaitForBootstrap(ctx)
+shamirKMS, err := adminHandler.WaitForBootstrap(ctx)
 
 // Update handler with bootstrapped KMS
 handler.SetKMS(shamirKMS)
+```
+
+### Using API Clients
+```go
+// Create an admin client for share management
+adminID := "admin-1"
+privateKey, _ := crypto.HexToECDSA("your-private-key-hex")
+adminClient := api.clients.NewAdminClient("https://registry.example.com:8081", adminID, privateKey)
+
+// Get status
+status, _ := adminClient.GetStatus()
+
+// Create a provisioning client for TEE registration
+provClient := instanceutils.NewProvisioningClient()
+provClient.ServerAddr = "https://registry.example.com:8080"
 ```
 
 ## Security Considerations

@@ -1,4 +1,4 @@
-package httpserver
+package clients
 
 import (
 	"crypto/ecdsa"

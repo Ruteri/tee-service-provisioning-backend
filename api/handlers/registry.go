@@ -1,4 +1,4 @@
-package httpserver
+package handlers
 
 import (
 	"context"
@@ -19,23 +19,16 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/ruteri/tee-service-provisioning-backend/api"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
 
 // Header constants used in HTTP requests and responses.
 const (
-	// AttestationTypeHeader specifies the TEE attestation mechanism used.
-	// Supported values: "azure-tdx", "qemu-tdx"
-	AttestationTypeHeader = "X-Flashbots-Attestation-Type"
-
-	// MeasurementHeader contains a JSON-encoded map of measurement values.
-	// Format: {"0":"00", "1":"01", ...} mapping register index to hex value.
-	MeasurementHeader = "X-Flashbots-Measurement"
-
 	// Supported attestation types
-	azureTDX = "azure-tdx" // Azure confidential computing with TDX
-	qemuTDX  = "qemu-tdx"  // Any DCAP-compatible TDX implementation
+	AzureTDX = "azure-tdx" // Azure confidential computing with TDX
+	QemuTDX  = "qemu-tdx"  // Any DCAP-compatible TDX implementation
 
 	// maxBodySize is the maximum allowed request body size (1MB).
 	maxBodySize = 1024 * 1024
@@ -91,7 +84,7 @@ func NewHandler(kms interfaces.KMS, storageFactory interfaces.StorageBackendFact
 //
 // URL format: POST /api/attested/register/{contract_address}
 // Required headers:
-//   - X-Flashbots-Attestation-Type: Type of attestation (azureTDX/qemuTDX)
+//   - X-Flashbots-Attestation-Type: Type of attestation (AzureTDX/QemuTDX)
 //   - X-Flashbots-Measurement: JSON-encoded measurement values
 //
 // Request body: TLS Certificate Signing Request (CSR) in PEM format
@@ -105,14 +98,14 @@ func NewHandler(kms interfaces.KMS, storageFactory interfaces.StorageBackendFact
 // before sending the response, ensuring the TEE instance receives plaintext secrets.
 func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 	// Parse attestation type from header
-	attestationType := r.Header.Get(AttestationTypeHeader)
+	attestationType := r.Header.Get(api.AttestationTypeHeader)
 	if attestationType == "" {
 		http.Error(w, "Missing attestation type header", http.StatusBadRequest)
 		return
 	}
 
 	// Parse measurements from header
-	measurementsJSON := r.Header.Get(MeasurementHeader)
+	measurementsJSON := r.Header.Get(api.MeasurementHeader)
 	if measurementsJSON == "" {
 		http.Error(w, "Missing measurements header", http.StatusBadRequest)
 		return
@@ -235,40 +228,12 @@ func (h *Handler) HandleAppMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// attestationToIdentity converts attestation data to an identity hash.
-// It uses the appropriate computation method based on attestation type.
-//
-// Parameters:
-//   - attestationType: The type of attestation (azureTDX or qemuTDX)
-//   - measurements: Map of measurement registers and their values
-//   - registry: Registry client for computing identity hashes
-//
-// Returns:
-//   - The computed identity hash
-//   - Error if attestation type is unsupported or computation fails
-func attestationToIdentity(attestationType string, measurements map[string]string, registry interfaces.OnchainRegistry) ([32]byte, error) {
-	switch attestationType {
-	case azureTDX:
-		// For MAA the measurements are simply the PCRs encoded as map[uint32][]byte
-		// Create an empty MAA report - this is a placeholder, you'll need to fill it properly
-		maaReport := &interfaces.MAAReport{}
-		return registry.ComputeMAAIdentity(maaReport)
-	case qemuTDX:
-		// For DCAP the measurements are RTMRs and MRTD encoded as map[uint32][]byte
-		// Create an empty DCAP report - this is a placeholder, you'll need to fill it properly
-		dcapReport := &interfaces.DCAPReport{}
-		return registry.ComputeDCAPIdentity(dcapReport)
-	default:
-		return [32]byte{}, fmt.Errorf("unsupported attestation type: %s", attestationType)
-	}
-}
-
 // handleRegister processes TEE instance registration requests.
 // This is the core business logic implementation for HandleRegister.
 //
 // Parameters:
 //   - ctx: Context for the operation
-//   - attestationType: Type of attestation (azureTDX/qemuTDX)
+//   - attestationType: Type of attestation (AzureTDX/QemuTDX)
 //   - measurements: Map of measurement registers and their values
 //   - contractAddress: Contract address for the application
 //   - csr: Certificate Signing Request in PEM format
@@ -287,7 +252,7 @@ func (h *Handler) handleRegister(ctx context.Context, attestationType string, me
 	}
 
 	// Calculate identity from attestation
-	identity, err := attestationToIdentity(attestationType, measurements, registry)
+	identity, err := api.AttestationToIdentity(attestationType, measurements, registry)
 	if err != nil {
 		h.log.Error("Failed to compute identity", "err", err, slog.String("attestationType", attestationType))
 		return nil, nil, nil, fmt.Errorf("identity computation error: %w", err)

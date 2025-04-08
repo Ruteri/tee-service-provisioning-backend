@@ -5,7 +5,7 @@
 // using Shamir's Secret Sharing with a zero-trust distribution model.
 // Shares are individually encrypted for each admin using their public keys,
 // ensuring no admin can access shares intended for others.
-package httpserver
+package handlers
 
 import (
 	"bytes"

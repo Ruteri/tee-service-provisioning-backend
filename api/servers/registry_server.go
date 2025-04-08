@@ -1,4 +1,4 @@
-package httpserver
+package servers
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"github.com/flashbots/go-utils/httplogger"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/ruteri/tee-service-provisioning-backend/api/handlers"
 	"github.com/ruteri/tee-service-provisioning-backend/common"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 	"github.com/ruteri/tee-service-provisioning-backend/kms"
@@ -79,8 +80,8 @@ type Server struct {
 	metricsSrv *metrics.MetricsServer
 
 	// Handlers
-	registryHandler *Handler
-	adminHandler    *AdminHandler
+	registryHandler *handlers.Handler
+	adminHandler    *handlers.AdminHandler
 	kmsImpl         interfaces.KMS
 
 	// Bootstrap completed channel
@@ -97,7 +98,7 @@ type Server struct {
 // Returns:
 //   - Configured server instance
 //   - Error if server creation fails
-func New(cfg *HTTPServerConfig, registryHandler *Handler, kmsImpl interfaces.KMS) (*Server, error) {
+func New(cfg *HTTPServerConfig, registryHandler *handlers.Handler, kmsImpl interfaces.KMS) (*Server, error) {
 	metricsSrv, err := metrics.New(common.PackageName, cfg.MetricsAddr)
 	if err != nil {
 		return nil, err
@@ -119,7 +120,7 @@ func New(cfg *HTTPServerConfig, registryHandler *Handler, kmsImpl interfaces.KMS
 			return nil, errors.New("admin keys are required when admin API is enabled")
 		}
 
-		srv.adminHandler = NewAdminHandler(cfg.Log, cfg.AdminKeys)
+		srv.adminHandler = handlers.NewAdminHandler(cfg.Log, cfg.AdminKeys)
 	}
 
 	// Set initial ready state
@@ -333,7 +334,7 @@ func (srv *Server) WaitForBootstrap(ctx context.Context) (*kms.ShamirKMS, error)
 //
 // Parameters:
 //   - handler: The new registry handler
-func (srv *Server) SetRegistryHandler(handler *Handler) {
+func (srv *Server) SetRegistryHandler(handler *handlers.Handler) {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 	srv.registryHandler = handler

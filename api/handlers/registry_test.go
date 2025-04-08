@@ -1,4 +1,4 @@
-package httpserver
+package handlers
 
 import (
 	"bytes"
@@ -21,6 +21,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/go-chi/chi/v5"
+	"github.com/ruteri/tee-service-provisioning-backend/api"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 	"github.com/ruteri/tee-service-provisioning-backend/kms"
@@ -96,7 +97,7 @@ func TestHandleRegister_Success(t *testing.T) {
 		fmt.Sprintf("/api/attested/register/%s", contractAddrHex),
 		bytes.NewReader(csr),
 	)
-	req.Header.Set(AttestationTypeHeader, qemuTDX)
+	req.Header.Set(api.AttestationTypeHeader, QemuTDX)
 
 	// Use JSON-encoded measurement map
 	measurementsMap := map[string]string{
@@ -108,7 +109,7 @@ func TestHandleRegister_Success(t *testing.T) {
 	}
 	measurementsJSON, err := json.Marshal(measurementsMap)
 	require.NoError(t, err)
-	req.Header.Set(MeasurementHeader, string(measurementsJSON))
+	req.Header.Set(api.MeasurementHeader, string(measurementsJSON))
 
 	// Create response recorder
 	w := httptest.NewRecorder()
@@ -172,7 +173,7 @@ func TestHandleRegister_IdentityNotWhitelisted(t *testing.T) {
 		fmt.Sprintf("/api/attested/register/%s", contractAddrHex),
 		bytes.NewReader(csr),
 	)
-	req.Header.Set(AttestationTypeHeader, qemuTDX)
+	req.Header.Set(api.AttestationTypeHeader, QemuTDX)
 
 	// Use JSON-encoded measurement map
 	measurementsMap := map[string]string{
@@ -184,7 +185,7 @@ func TestHandleRegister_IdentityNotWhitelisted(t *testing.T) {
 	}
 	measurementsJSON, err := json.Marshal(measurementsMap)
 	require.NoError(t, err)
-	req.Header.Set(MeasurementHeader, string(measurementsJSON))
+	req.Header.Set(api.MeasurementHeader, string(measurementsJSON))
 
 	// Create response recorder
 	w := httptest.NewRecorder()
@@ -328,7 +329,7 @@ func TestConfigReferenceResolution(t *testing.T) {
 		fmt.Sprintf("/api/attested/register/%s", contractAddrHex),
 		bytes.NewReader(csr),
 	)
-	req.Header.Set(AttestationTypeHeader, qemuTDX)
+	req.Header.Set(api.AttestationTypeHeader, QemuTDX)
 
 	// Set up measurements header
 	measurementsMap := map[string]string{
@@ -340,7 +341,7 @@ func TestConfigReferenceResolution(t *testing.T) {
 	}
 	measurementsJSON, err := json.Marshal(measurementsMap)
 	require.NoError(t, err)
-	req.Header.Set(MeasurementHeader, string(measurementsJSON))
+	req.Header.Set(api.MeasurementHeader, string(measurementsJSON))
 
 	// Create response recorder
 	w := httptest.NewRecorder()
@@ -454,7 +455,7 @@ func TestServerSideDecryption(t *testing.T) {
 	handler := NewHandler(kmsInstance, storageFactory, mockRegistryFactory, logger)
 
 	// Create test request data
-	attestationType := qemuTDX
+	attestationType := QemuTDX
 	measurements := map[string]string{"0": "00", "1": "01"}
 	_, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(contractAddr).String())
 	require.NoError(t, err)
@@ -569,7 +570,7 @@ func TestComplexConfigWithServerDecryption(t *testing.T) {
 	handler := NewHandler(kmsInstance, storageFactory, mockRegistryFactory, logger)
 
 	// Create test request data
-	attestationType := qemuTDX
+	attestationType := QemuTDX
 	measurements := map[string]string{"0": "00", "1": "01"}
 	_, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(contractAddr).String())
 	require.NoError(t, err)
@@ -665,7 +666,7 @@ func TestDecryptionFailure(t *testing.T) {
 	handler := NewHandler(kmsInstance, storageFactory, mockRegistryFactory, logger)
 
 	// Create test request data
-	attestationType := qemuTDX
+	attestationType := QemuTDX
 	measurements := map[string]string{"0": "00", "1": "01"}
 	_, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(contractAddr).String())
 	require.NoError(t, err)
@@ -730,7 +731,7 @@ func TestNonJSONSecret(t *testing.T) {
 	handler := NewHandler(kmsInstance, storageFactory, mockRegistryFactory, logger)
 
 	// Create test request data
-	attestationType := qemuTDX
+	attestationType := QemuTDX
 	measurements := map[string]string{"0": "00", "1": "01"}
 	_, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(contractAddr).String())
 	require.NoError(t, err)

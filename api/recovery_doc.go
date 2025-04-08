@@ -1,5 +1,5 @@
 /*
-Package httpserver provides secure share management for KMS bootstrapping.
+Package api implements a secure share management system for KMS bootstrapping.
 
 # Share Distribution Security Model
 
@@ -61,7 +61,7 @@ All cryptographic operations use modern, secure algorithms:
 
 # Client Implementation
 
-The AdminShareClient provides a secure client implementation that:
+The AdminShareClient (in the clients package) provides a secure client implementation that:
 
 1. Automatically signs requests with the admin's private key
 2. Handles share retrieval and decryption
@@ -76,4 +76,4 @@ The AdminShareClient provides a secure client implementation that:
 4. The threshold should be set appropriately (not too low, not too high)
 5. In production, additional authentication factors should be considered
 */
-package httpserver
+package api
