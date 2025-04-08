@@ -136,8 +136,8 @@ func (p *LocalKMSRegistrationProvider) Register(app interfaces.ContractAddress, 
 	}
 
 	return &api.RegistrationResponse{
-		AppPrivkey: string(appPrivkey),
-		TLSCert:    string(cert),
-		Config:     "",
+		AppPrivkey: appPrivkey,
+		TLSCert:    cert,
+		Config:     interfaces.InstanceConfig{},
 	}, nil
 }

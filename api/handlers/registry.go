@@ -26,10 +26,6 @@ import (
 
 // Header constants used in HTTP requests and responses.
 const (
-	// Supported attestation types
-	AzureTDX = "azure-tdx" // Azure confidential computing with TDX
-	QemuTDX  = "qemu-tdx"  // Any DCAP-compatible TDX implementation
-
 	// maxBodySize is the maximum allowed request body size (1MB).
 	maxBodySize = 1024 * 1024
 )
@@ -84,15 +80,12 @@ func NewHandler(kms interfaces.KMS, storageFactory interfaces.StorageBackendFact
 //
 // URL format: POST /api/attested/register/{contract_address}
 // Required headers:
-//   - X-Flashbots-Attestation-Type: Type of attestation (AzureTDX/QemuTDX)
+//   - X-Flashbots-Attestation-Type: Type of attestation
 //   - X-Flashbots-Measurement: JSON-encoded measurement values
 //
 // Request body: TLS Certificate Signing Request (CSR) in PEM format
 //
-// Response: JSON containing:
-//   - app_privkey: Private key for the application
-//   - tls_cert: Signed TLS certificate
-//   - config: Instance configuration with resolved references and decrypted secrets
+// Response: JSON, see api.RegistrationResponse
 //
 // The handler decrypts any pre-encrypted secrets referenced in the configuration template
 // before sending the response, ensuring the TEE instance receives plaintext secrets.
@@ -166,10 +159,10 @@ func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Prepare response
-	response := map[string]interface{}{
-		"app_privkey": string(appPrivkey),
-		"tls_cert":    string(tlsCert),
-		"config":      string(instanceConfig),
+	response := api.RegistrationResponse{
+		AppPrivkey: appPrivkey,
+		TLSCert:    tlsCert,
+		Config:     instanceConfig,
 	}
 
 	// Return JSON response
@@ -186,37 +179,51 @@ func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 //
 // URL format: GET /api/public/app_metadata/{contract_address}
 //
-// Response: JSON containing:
-//   - ca_cert: CA certificate in PEM format
-//   - app_pubkey: Application public key in PEM format
-//   - attestation: Attestation data
+// Response: JSON, see api.MetadataResponse
 func (h *Handler) HandleAppMetadata(w http.ResponseWriter, r *http.Request) {
-	contractAddrHex := r.PathValue("contract_address")
-
 	// Parse contract address from hex
-	contractAddrBytes, err := hex.DecodeString(contractAddrHex)
-	if err != nil || len(contractAddrBytes) != 20 {
-		h.log.Error("Invalid contract address", "err", err, "address", contractAddrHex)
+	contractAddr, err := interfaces.NewContractAddressFromHex(r.PathValue("contract_address"))
+	if err != nil {
+		h.log.Error("Invalid contract address", "err", err, "address", r.PathValue("contract_address"))
 		http.Error(w, "Invalid contract address format", http.StatusBadRequest)
 		return
 	}
 
-	var contractAddr interfaces.ContractAddress
-	copy(contractAddr[:], contractAddrBytes)
-
-	// Get PKI from KMS
-	pki, err := h.kms.GetPKI(contractAddr)
+	registry, err := h.registryFactory.RegistryFor(contractAddr)
 	if err != nil {
-		h.log.Error("Failed to get PKI", "err", err, "contractAddress", contractAddrHex)
-		http.Error(w, fmt.Sprintf("Failed to get PKI: %v", err), http.StatusInternalServerError)
+		h.log.Error("Failed to get registry", "err", err, "contractAddress", contractAddr.String())
+		http.Error(w, fmt.Errorf("Failed to get registry: %w", err).Error(), http.StatusInternalServerError)
 		return
 	}
 
+	pki, err := registry.GetPKI()
+	if err != nil {
+		h.log.Error("Failed to get PKI", "err", err, "contractAddress", contractAddr.String())
+		http.Error(w, fmt.Errorf("Failed to get PKI: %w", err).Error(), http.StatusInternalServerError)
+		return
+	}
+
+	domainNamesFromRegistry, err := registry.AllInstanceDomainNames()
+	if err != nil {
+		h.log.Error("Failed to get domain names", "err", err, "contractAddress", contractAddr.String())
+		http.Error(w, fmt.Errorf("Failed to get domain names: %w", err).Error(), http.StatusInternalServerError)
+		return
+	}
+
+	domainNames := []interfaces.AppDomainName{}
+	for _, rawDN := range domainNamesFromRegistry {
+		dn, err := interfaces.NewAppDomainName(rawDN)
+		if err != nil {
+			h.log.Debug("invalid domain received from registry", "raw domain name", rawDN)
+		} else {
+			domainNames = append(domainNames, dn)
+		}
+	}
+
 	// Prepare response
-	response := map[string]interface{}{
-		"ca_cert":     string(pki.Ca),
-		"app_pubkey":  string(pki.Pubkey),
-		"attestation": string(pki.Attestation),
+	response := api.MetadataResponse{
+		CACert:      pki.Ca,
+		DomainNames: domainNames,
 	}
 
 	// Return JSON response
@@ -233,7 +240,7 @@ func (h *Handler) HandleAppMetadata(w http.ResponseWriter, r *http.Request) {
 //
 // Parameters:
 //   - ctx: Context for the operation
-//   - attestationType: Type of attestation (AzureTDX/QemuTDX)
+//   - attestationType: Type of attestation
 //   - measurements: Map of measurement registers and their values
 //   - contractAddress: Contract address for the application
 //   - csr: Certificate Signing Request in PEM format

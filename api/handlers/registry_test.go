@@ -97,7 +97,7 @@ func TestHandleRegister_Success(t *testing.T) {
 		fmt.Sprintf("/api/attested/register/%s", contractAddrHex),
 		bytes.NewReader(csr),
 	)
-	req.Header.Set(api.AttestationTypeHeader, QemuTDX)
+	req.Header.Set(api.AttestationTypeHeader, api.QemuTDX)
 
 	// Use JSON-encoded measurement map
 	measurementsMap := map[string]string{
@@ -173,7 +173,7 @@ func TestHandleRegister_IdentityNotWhitelisted(t *testing.T) {
 		fmt.Sprintf("/api/attested/register/%s", contractAddrHex),
 		bytes.NewReader(csr),
 	)
-	req.Header.Set(api.AttestationTypeHeader, QemuTDX)
+	req.Header.Set(api.AttestationTypeHeader, api.QemuTDX)
 
 	// Use JSON-encoded measurement map
 	measurementsMap := map[string]string{
@@ -216,9 +216,19 @@ func TestHandleAppMetadata_Success(t *testing.T) {
 
 	// Set up mock registry factory
 	mockRegistryFactory := new(registry.MockRegistryFactory)
+	mockRegistry := registry.NewMockRegistryClient()
+	mockRegistry.SetTransactOpts()
 
 	// Set up test data
 	contractAddr := interfaces.ContractAddress(common.HexToAddress("0123456789abcdef0123"))
+
+	// Setup mock expectations for failure case
+	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
+	testPKI, err := kmsInstance.GetPKI(contractAddr)
+	require.NoError(t, err)
+	mockRegistry.RegisterPKI(&testPKI)
+	_, err = mockRegistry.RegisterInstanceDomainName("test.app")
+	require.NoError(t, err)
 
 	// Create handler
 	handler := NewHandler(kmsInstance, storageFactory, mockRegistryFactory, logger)
@@ -245,16 +255,15 @@ func TestHandleAppMetadata_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var result map[string]interface{}
+	var result api.MetadataResponse
 	respBody, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	err = json.Unmarshal(respBody, &result)
 	require.NoError(t, err, string(respBody))
 
 	// Verify response contains expected fields
-	assert.Contains(t, result, "ca_cert")
-	assert.Contains(t, result, "app_pubkey")
-	assert.Contains(t, result, "attestation")
+	assert.NoError(t, cryptoutils.CACert(result.CACert).Validate())
+	assert.Equal(t, []interfaces.AppDomainName{"test.app"}, result.DomainNames)
 }
 
 // TestConfigReferenceResolution tests that the handler correctly resolves
@@ -329,7 +338,7 @@ func TestConfigReferenceResolution(t *testing.T) {
 		fmt.Sprintf("/api/attested/register/%s", contractAddrHex),
 		bytes.NewReader(csr),
 	)
-	req.Header.Set(api.AttestationTypeHeader, QemuTDX)
+	req.Header.Set(api.AttestationTypeHeader, api.QemuTDX)
 
 	// Set up measurements header
 	measurementsMap := map[string]string{
@@ -360,18 +369,14 @@ func TestConfigReferenceResolution(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode, string(responseBody))
 
 	// Parse the response
-	var result map[string]interface{}
+	var result api.RegistrationResponse
 	err = json.Unmarshal(responseBody, &result)
 	require.NoError(t, err)
 
-	// Verify the config contains the resolved references
-	configStr, ok := result["config"].(string)
-	require.True(t, ok)
-
 	// Parse the resolved config
 	var resolvedConfig map[string]interface{}
-	err = json.Unmarshal([]byte(configStr), &resolvedConfig)
-	require.NoError(t, err, string(configStr))
+	err = json.Unmarshal(result.Config, &resolvedConfig)
+	require.NoError(t, err, string(result.Config))
 
 	// Verify database config was resolved
 	database, ok := resolvedConfig["database"].(map[string]interface{})
@@ -455,13 +460,12 @@ func TestServerSideDecryption(t *testing.T) {
 	handler := NewHandler(kmsInstance, storageFactory, mockRegistryFactory, logger)
 
 	// Create test request data
-	attestationType := QemuTDX
 	measurements := map[string]string{"0": "00", "1": "01"}
 	_, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(contractAddr).String())
 	require.NoError(t, err)
 
 	// Call handleRegister directly
-	appPrivkey, _, processedConfig, err := handler.handleRegister(ctx, attestationType, measurements, contractAddr, csr)
+	appPrivkey, _, processedConfig, err := handler.handleRegister(ctx, api.QemuTDX, measurements, contractAddr, csr)
 	require.NoError(t, err)
 	require.NotNil(t, appPrivkey)
 
@@ -570,13 +574,12 @@ func TestComplexConfigWithServerDecryption(t *testing.T) {
 	handler := NewHandler(kmsInstance, storageFactory, mockRegistryFactory, logger)
 
 	// Create test request data
-	attestationType := QemuTDX
 	measurements := map[string]string{"0": "00", "1": "01"}
 	_, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(contractAddr).String())
 	require.NoError(t, err)
 
 	// Call handleRegister
-	_, _, processedConfig, err := handler.handleRegister(ctx, attestationType, measurements, contractAddr, csr)
+	_, _, processedConfig, err := handler.handleRegister(ctx, api.QemuTDX, measurements, contractAddr, csr)
 	require.NoError(t, err)
 
 	// Parse the processed config
@@ -666,13 +669,12 @@ func TestDecryptionFailure(t *testing.T) {
 	handler := NewHandler(kmsInstance, storageFactory, mockRegistryFactory, logger)
 
 	// Create test request data
-	attestationType := QemuTDX
 	measurements := map[string]string{"0": "00", "1": "01"}
 	_, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(contractAddr).String())
 	require.NoError(t, err)
 
 	// Call handleRegister - decryption should fail but not crash
-	_, _, _, err = handler.handleRegister(ctx, attestationType, measurements, contractAddr, csr)
+	_, _, _, err = handler.handleRegister(ctx, api.QemuTDX, measurements, contractAddr, csr)
 	require.Error(t, err)
 
 	// Verify mock expectations
@@ -731,13 +733,12 @@ func TestNonJSONSecret(t *testing.T) {
 	handler := NewHandler(kmsInstance, storageFactory, mockRegistryFactory, logger)
 
 	// Create test request data
-	attestationType := QemuTDX
 	measurements := map[string]string{"0": "00", "1": "01"}
 	_, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(contractAddr).String())
 	require.NoError(t, err)
 
 	// Call handleRegister
-	_, _, processedConfig, err := handler.handleRegister(ctx, attestationType, measurements, contractAddr, csr)
+	_, _, processedConfig, err := handler.handleRegister(ctx, api.QemuTDX, measurements, contractAddr, csr)
 	require.NoError(t, err)
 
 	// Parse the processed config

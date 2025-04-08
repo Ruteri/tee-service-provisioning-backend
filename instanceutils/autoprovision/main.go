@@ -12,7 +12,9 @@ import (
 	"github.com/ruteri/tee-service-provisioning-backend/api"
 	"github.com/ruteri/tee-service-provisioning-backend/api/clients"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
+	"github.com/ruteri/tee-service-provisioning-backend/instanceutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
+	"github.com/ruteri/tee-service-provisioning-backend/kms"
 	"github.com/urfave/cli/v2"
 )
 
@@ -66,6 +68,10 @@ var flags []cli.Flag = []cli.Flag{
 	&cli.StringFlag{
 		Name:  "mapper-device",
 		Usage: "Mapper device to use. If unset defaults to '/dev/mapper/<mapper name>'",
+	},
+	&cli.StringFlag{
+		Name:  "debug-local-provider",
+		Usage: "If provided the provisioner will use a dummy provider instead of a remote one",
 	},
 	&cli.StringFlag{
 		Name:  "debug-set-attestation-type-header",
@@ -157,6 +163,21 @@ func NewProvisioner(cCtx *cli.Context) (*Provisioner, error) {
 	}
 	copy(appContract[:], appContractBytes)
 
+	var registrationProvider api.RegistrationProvider
+	if !cCtx.Bool("debug-local-provider") {
+		registrationProvider = &clients.ProvisioningClient{
+			ServerAddr:                cCtx.String("provisioning-server-addr"),
+			SetAttestationType:        cCtx.String("debug-set-attestation-type-header"),
+			SetAttestationMeasurement: cCtx.String("debug-set-attestation-measurement-header"),
+		}
+	} else {
+		localKMS, err := kms.NewSimpleKMS(make([]byte, 32))
+		if err != nil {
+			return nil, fmt.Errorf("could not create a local kms: %w", err)
+		}
+		registrationProvider = &instanceutils.LocalKMSRegistrationProvider{KMS: localKMS}
+	}
+
 	return &Provisioner{
 		AppContract: appContract,
 		DiskConfig: DiskConfig{
@@ -165,15 +186,11 @@ func NewProvisioner(cCtx *cli.Context) (*Provisioner, error) {
 			MapperName:   cCtx.String("mapper-name"),
 			MapperDevice: mapperDevice,
 		},
-		ConfigFilePath: configFile,
-		TLSCertPath:    tlsCertFile,
-		TLSKeyPath:     tlsKeyFile,
-		AppPrivkeyPath: appKeyFile,
-		RegistrationProvider: &clients.ProvisioningClient{
-			ServerAddr:                cCtx.String("provisioning-server-addr"),
-			SetAttestationType:        cCtx.String("debug-set-attestation-type-header"),
-			SetAttestationMeasurement: cCtx.String("debug-set-attestation-measurement-header"),
-		},
+		ConfigFilePath:       configFile,
+		TLSCertPath:          tlsCertFile,
+		TLSKeyPath:           tlsKeyFile,
+		AppPrivkeyPath:       appKeyFile,
+		RegistrationProvider: registrationProvider,
 	}, nil
 }
 

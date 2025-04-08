@@ -37,13 +37,27 @@ type RegistrationProvider interface {
 // returned by the provisioning server after successful registration.
 type RegistrationResponse struct {
 	// AppPrivkey is the private key for the application (for secrets decryption)
-	AppPrivkey string `json:"app_privkey"`
+	AppPrivkey interfaces.AppPrivkey `json:"app_privkey"`
 
 	// TLSCert is the signed TLS certificate for secure communication
-	TLSCert string `json:"tls_cert"`
+	TLSCert interfaces.TLSCert `json:"tls_cert"`
 
 	// Config is the resolved instance configuration with decrypted secrets
-	Config string `json:"config"`
+	Config interfaces.InstanceConfig `json:"config"`
+}
+
+type MetadataProvider interface {
+	GetAppMetadata(contractAddr interfaces.ContractAddress) (*MetadataResponse, error)
+}
+
+// MetadataResponse contains the certificate authority and application domain names
+// that can be used to connect to an application
+type MetadataResponse struct {
+	// CACert is the certificate authority that is expected for the application
+	CACert interfaces.CACert `json:"ca_cert"`
+
+	// DomainNames is the domain names that should be resolved to get app instances
+	DomainNames []interfaces.AppDomainName `json:"domain_names"`
 }
 
 // AttestationToIdentity converts attestation data to an identity hash.

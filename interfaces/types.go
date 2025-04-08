@@ -141,7 +141,7 @@ type MAAReport = registry.MAAReport
 type AppPKI = registry.AppPKI
 
 // InstanceConfig represents the configuration data for a TEE instance.
-type InstanceConfig []byte
+type InstanceConfig json.RawMessage
 
 // NewInstanceConfig creates a new instance configuration with basic validation.
 func NewInstanceConfig(data []byte) (InstanceConfig, error) {
