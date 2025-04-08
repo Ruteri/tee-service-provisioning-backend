@@ -37,7 +37,7 @@ type LUKSToken struct {
 
 func isLuks(diskConfig DiskConfig) bool {
 	cmd := exec.Command("cryptsetup", "isLuks", diskConfig.DevicePath)
-	return cmd.Run() != nil
+	return cmd.Run() == nil
 }
 
 func setupNewDisk(diskConfig DiskConfig, passphrase string) error {

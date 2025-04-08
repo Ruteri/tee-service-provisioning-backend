@@ -51,11 +51,6 @@ var flags []cli.Flag = []cli.Flag{
 		Usage: "path to store app key (secrets deriviation) file at. Defaults to <mount point>/autoprovisioning/app.key",
 	},
 	&cli.StringFlag{
-		Name:  "device-path",
-		Value: "/persistent",
-		Usage: "path to mount (decrypted) persistent disk on",
-	},
-	&cli.StringFlag{
 		Name:  "device-glob",
 		Value: "/dev/disk/by-path/*scsi-0:0:0:10",
 		Usage: "Device glob pattern",
@@ -69,7 +64,7 @@ var flags []cli.Flag = []cli.Flag{
 		Name:  "mapper-device",
 		Usage: "Mapper device to use. If unset defaults to '/dev/mapper/<mapper name>'",
 	},
-	&cli.StringFlag{
+	&cli.BoolFlag{
 		Name:  "debug-local-provider",
 		Usage: "If provided the provisioner will use a dummy provider instead of a remote one",
 	},
@@ -199,11 +194,11 @@ func (p *Provisioner) Do() error {
 		return errors.New("encrypted disk already mounted, refusing to continue")
 	}
 
-	CN := fmt.Sprintf("%x.app", p.AppContract)
+	CN := interfaces.NewAppCommonName(p.AppContract)
 
 	if !isLuks(p.DiskConfig) {
 		// Brand new disk!
-		tlskey, csr, err := cryptoutils.CreateCSRWithRandomKey(CN)
+		tlskey, csr, err := cryptoutils.CreateCSRWithRandomKey(CN.String())
 		if err != nil {
 			return fmt.Errorf("could not create instance CSR: %w", err)
 		}
@@ -215,7 +210,7 @@ func (p *Provisioner) Do() error {
 
 		diskKey := cryptoutils.DeriveDiskKey(csr, []byte(parsedResponse.AppPrivkey))
 
-		if err = cryptoutils.VerifyCertificate(tlskey, []byte(parsedResponse.TLSCert), CN); err != nil {
+		if err = cryptoutils.VerifyCertificate(tlskey, []byte(parsedResponse.TLSCert), CN.String()); err != nil {
 			return fmt.Errorf("invalid certificate in registration response: %w", err)
 		}
 
@@ -286,7 +281,7 @@ func (p *Provisioner) Do() error {
 			return fmt.Errorf("could note read tls key for verification: %w, refusing to continue", err)
 		}
 
-		if err = cryptoutils.VerifyCertificate(tlsKey, []byte(parsedResponse.TLSCert), CN); err != nil {
+		if err = cryptoutils.VerifyCertificate(tlsKey, []byte(parsedResponse.TLSCert), CN.String()); err != nil {
 			return fmt.Errorf("certificate verification failed: %w, refusing to continue", err)
 		}
 
