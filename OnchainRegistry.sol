@@ -186,7 +186,7 @@ contract Registry is AccessControl, Ownable, ReentrancyGuard, IRegistry {
         limitBytesSize(data)
         returns (bytes32 artifactHash) 
     {
-        artifactHash = keccak256(data);
+        artifactHash = sha256(data);
         artifacts[artifactHash] = data;
         emit ArtifactAdded(artifactHash, msg.sender);
         return artifactHash;

@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
 
@@ -48,9 +46,7 @@ func (b *OnchainBackend) Fetch(ctx context.Context, id interfaces.ContentID, con
 
 // Store saves data to the blockchain and returns its content identifier.
 func (b *OnchainBackend) Store(ctx context.Context, data []byte, contentType interfaces.ContentType) (interfaces.ContentID, error) {
-	// Generate content ID by hashing the data
-	hash := crypto.Keccak256Hash(data)
-	id := interfaces.ContentID(hash)
+	id := interfaces.ComputeID(data)
 
 	storedID, tx, err := b.registry.AddArtifact(data)
 	if err != nil {
@@ -87,8 +83,7 @@ func (b *OnchainBackend) Available(ctx context.Context) bool {
 
 // Name returns a unique identifier for this storage backend.
 func (b *OnchainBackend) Name() string {
-	ethAddr := common.BytesToAddress(b.contractAddr[:])
-	return fmt.Sprintf("onchain-%s", ethAddr.Hex()[:8])
+	return fmt.Sprintf("onchain-%s", b.contractAddr)
 }
 
 // LocationURI returns the URI that identifies this storage backend.
