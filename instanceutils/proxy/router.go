@@ -224,6 +224,7 @@ func (r *HTTPRouter) handleIngressRequest(w http.ResponseWriter, req *http.Reque
 
 	peerCertCNBytes, err := hex.DecodeString(strings.Split(req.TLS.VerifiedChains[0][0].Subject.CommonName, ".")[0])
 	if err != nil || len(peerCertCNBytes) != 20 {
+		fmt.Println(req.TLS.VerifiedChains[0][0].Subject.CommonName, peerCertCNBytes)
 		r.config.Log.Error("Bad peer cert CN")
 		http.Error(w, "Bad peer cert CN", http.StatusBadRequest)
 		return

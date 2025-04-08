@@ -3,33 +3,128 @@
 package interfaces
 
 import (
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"regexp"
+	"strings"
+
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ruteri/tee-service-provisioning-backend/bindings/registry"
+	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 )
 
-// TLSCSR represents a TLS Certificate Signing Request in PEM format.
-type TLSCSR []byte
-
-// TLSCert represents a TLS Certificate in PEM format.
-type TLSCert []byte
-
-// CACert represents a Certificate Authority Certificate in PEM format.
-type CACert []byte
-
-// AppPubkey represents an application's public key in PEM format.
-type AppPubkey []byte
-
-// AppPrivkey represents an application's private key in PEM format.
-type AppPrivkey []byte
+type TLSCSR = cryptoutils.TLSCSR
+type TLSCert = cryptoutils.TLSCert
+type CACert = cryptoutils.CACert
+type AppPubkey = cryptoutils.AppPubkey
+type AppPrivkey = cryptoutils.AppPrivkey
 
 // Attestation represents a cryptographic attestation of identity.
 type Attestation []byte
 
-// ContractAddress represents an Ethereum contract address (20 bytes).
+// NewAttestation creates a new attestation object with basic validation.
+func NewAttestation(data []byte) (Attestation, error) {
+	if len(data) == 0 {
+		return Attestation{}, errors.New("attestation data cannot be empty")
+	}
+	return Attestation(data), nil
+}
+
+// ContractAddress represents an Ethereum contract address.
 type ContractAddress [20]byte
+
+// NewContractAddress creates a new contract address from a byte array or hex string.
+func NewContractAddressFromBytes(addr []byte) (ContractAddress, error) {
+	if len(addr) != 20 {
+		return ContractAddress{}, errors.New("invalid address length: must be 20 bytes")
+	}
+	return ContractAddress(common.BytesToAddress(addr)), nil
+}
+
+func NewContractAddressFromHex(addr string) (ContractAddress, error) {
+	// Remove 0x prefix if present
+	clean := strings.TrimPrefix(addr, "0x")
+	if len(clean) != 40 {
+		return ContractAddress{}, errors.New("invalid address length: hex string must be 40 characters")
+	}
+
+	// Validate hex format
+	if _, err := hex.DecodeString(clean); err != nil {
+		return ContractAddress{}, fmt.Errorf("invalid hex format: %w", err)
+	}
+
+	return ContractAddress(common.HexToAddress(addr)), nil
+}
+
+// String returns the hex string representation of the contract address.
+func (addr ContractAddress) String() string {
+	return hex.EncodeToString(addr[:])
+}
+
+// Bytes returns the raw 20-byte address.
+func (addr ContractAddress) Bytes() []byte {
+	return addr[:]
+}
+
+// Equal compares two contract addresses for equality.
+func (addr ContractAddress) Equal(other ContractAddress) bool {
+	return addr == other
+}
+
+// AppCommonName represents a common name for an application certificates.
+type AppCommonName string
+
+// NewAppCommonName creates a new common name with validation.
+func NewAppCommonName(addr ContractAddress) AppCommonName {
+	return AppCommonName(addr.String() + ".app")
+}
+
+// String returns the domain name as a string.
+func (name AppCommonName) String() string {
+	return string(name)
+}
+
+// String returns the domain name as a string.
+func (name AppCommonName) Address() (ContractAddress, error) {
+	if len(name) != 44 {
+		return ContractAddress{}, errors.New("invalid app cn")
+	}
+	return NewContractAddressFromHex(string(name[:40]))
+}
 
 // AppDomainName represents a domain name for an application instance.
 type AppDomainName string
+
+// NewAppDomainName creates a new domain name with validation.
+func NewAppDomainName(domain string) (AppDomainName, error) {
+	// Basic domain name validation (simplified version)
+	domainRegex := regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$`)
+	if !domainRegex.MatchString(domain) {
+		return AppDomainName(""), errors.New("invalid domain name format")
+	}
+
+	return AppDomainName(domain), nil
+}
+
+// String returns the domain name as a string.
+func (name AppDomainName) String() string {
+	return string(name)
+}
+
+// Validate checks if the domain name has a valid format.
+func (name AppDomainName) Validate() error {
+	_, err := NewAppDomainName(string(name))
+	return err
+}
+
+// Validate checks if the domain name has a valid format.
+func (name AppCommonName) Validate() error {
+	_, err := name.Address()
+	return err
+}
 
 // DCAPReport represents a Direct Capability Attestation Protocol report.
 // It contains measurement registers that uniquely identify a TEE instance.
@@ -45,11 +140,24 @@ type MAAReport = registry.MAAReport
 // AppPKI represents a PKI bundle containing CA certificate, public key, and attestation.
 type AppPKI = registry.AppPKI
 
-// StorageBackendLocation represents a URI location for a content storage backend.
-type StorageBackendLocation string
-
 // InstanceConfig represents the configuration data for a TEE instance.
 type InstanceConfig []byte
+
+// NewInstanceConfig creates a new instance configuration with basic validation.
+func NewInstanceConfig(data []byte) (InstanceConfig, error) {
+	if len(data) == 0 {
+		return InstanceConfig{}, errors.New("configuration data cannot be empty")
+	}
+
+	// Basic format validation - check if it's valid JSON
+	if !json.Valid(data) {
+		// If not JSON, could be YAML or other format
+		// For now, we'll just accept it, but this could be expanded
+		// to add more specific validation for other formats
+	}
+
+	return InstanceConfig(data), nil
+}
 
 // KMS defines the interface for key management operations related to TEE applications.
 // It handles cryptographic materials for secure communication with TEE instances.

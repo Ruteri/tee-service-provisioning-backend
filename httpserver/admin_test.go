@@ -9,7 +9,6 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -23,6 +22,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
+	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 	"github.com/ruteri/tee-service-provisioning-backend/kms"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,7 +33,7 @@ import (
 // generateAdminKeyPairs generates n admin key pairs for testing
 func generateAdminKeyPairs(t *testing.T, n int) (map[string]*ecdsa.PrivateKey, map[string][]byte) {
 	adminPrivKeys := make(map[string]*ecdsa.PrivateKey, n)
-	adminPubKeyPEMs := make(map[string][]byte, n)
+	adminPubKeys := make(map[string][]byte, n)
 
 	for i := 0; i < n; i++ {
 		adminID := fmt.Sprintf("admin%d", i+1)
@@ -51,10 +51,11 @@ func generateAdminKeyPairs(t *testing.T, n int) (map[string]*ecdsa.PrivateKey, m
 			Type:  "PUBLIC KEY",
 			Bytes: pubKeyBytes,
 		})
-		adminPubKeyPEMs[adminID] = pubKeyPEM
+
+		adminPubKeys[adminID] = pubKeyPEM
 	}
 
-	return adminPrivKeys, adminPubKeyPEMs
+	return adminPrivKeys, adminPubKeys
 }
 
 // createTestServer creates a test server with the admin handler
@@ -467,8 +468,8 @@ func TestAdminHandler_handleGetShare(t *testing.T) {
 	require.NoError(t, err)
 
 	// Register admins with KMS
-	for _, pubKeyPEM := range adminPubKeys {
-		err = shamirKMS.RegisterAdmin(pubKeyPEM)
+	for _, pubKey := range adminPubKeys {
+		err = shamirKMS.RegisterAdmin(pubKey)
 		require.NoError(t, err, "Failed to register admin with KMS")
 	}
 
@@ -478,10 +479,10 @@ func TestAdminHandler_handleGetShare(t *testing.T) {
 	// Create secure shares
 	for i, share := range shares {
 		adminID := adminIDs[i]
-		pubKeyPEM := adminPubKeys[adminID]
+		pubKey := adminPubKeys[adminID]
 
 		// Encrypt the share with the admin's public key
-		encryptedShare, err := cryptoutils.EncryptWithPublicKey(pubKeyPEM, share)
+		encryptedShare, err := cryptoutils.EncryptWithPublicKey(pubKey, share)
 		require.NoError(t, err)
 
 		// Store the encrypted share
@@ -553,8 +554,12 @@ func TestAdminHandler_handleGetShare(t *testing.T) {
 				Bytes: privateKeyBytes,
 			})
 
+			// Create AppPrivkey from PEM
+			privKey, err := cryptoutils.NewAppPrivkey(privateKeyPEM)
+			require.NoError(t, err)
+
 			// Decrypt the share
-			decryptedShare, err := cryptoutils.DecryptWithPrivateKey(privateKeyPEM, encryptedShare)
+			decryptedShare, err := cryptoutils.DecryptWithPrivateKey(privKey, encryptedShare)
 			require.NoError(t, err, "Share decryption should succeed")
 			assert.NotEmpty(t, decryptedShare, "Decrypted share should not be empty")
 		})
@@ -743,8 +748,8 @@ func TestAdminHandler_handleSubmitShare(t *testing.T) {
 	shamirKMS := kms.NewShamirKMSRecovery(3)
 
 	// Register admins with KMS
-	for _, pubKeyPEM := range adminPubKeys {
-		err = shamirKMS.RegisterAdmin(pubKeyPEM)
+	for _, pubKey := range adminPubKeys {
+		err = shamirKMS.RegisterAdmin(pubKey)
 		require.NoError(t, err, "Failed to register admin with KMS")
 	}
 
@@ -863,7 +868,7 @@ func TestAdminHandler_handleSubmitShare_NotRecovering(t *testing.T) {
 
 func TestLoadAdminKeys(t *testing.T) {
 	// Generate key pairs
-	_, pubKey1Str, err := GenerateAdminKeyPair()
+	_, pubKeyStr, err := GenerateAdminKeyPair()
 	require.NoError(t, err)
 
 	_, pubKey2Str, err := GenerateAdminKeyPair()
@@ -881,7 +886,7 @@ func TestLoadAdminKeys(t *testing.T) {
 				"pubkey": %q
 			}
 		]
-	}`, pubKey1Str, pubKey2Str)
+	}`, pubKeyStr, pubKey2Str)
 
 	// Load the keys
 	adminKeys, err := LoadAdminKeys(strings.NewReader(jsonData))
@@ -891,8 +896,11 @@ func TestLoadAdminKeys(t *testing.T) {
 	assert.Len(t, adminKeys, 2, "Should load 2 admin keys")
 	assert.Contains(t, adminKeys, "admin1", "Should contain admin1")
 	assert.Contains(t, adminKeys, "admin2", "Should contain admin2")
-	assert.Equal(t, []byte(pubKey1Str), adminKeys["admin1"], "Pubkey1 should match")
-	assert.Equal(t, []byte(pubKey2Str), adminKeys["admin2"], "Pubkey2 should match")
+
+	// Create AppPubkey instances for comparison
+	pubKey1, err := cryptoutils.NewAppPubkey([]byte(pubKeyStr))
+	require.NoError(t, err)
+	assert.Equal(t, []byte(pubKey1), adminKeys["admin1"], "Pubkey1 should match")
 }
 
 func TestGenerateAdminKeyPair(t *testing.T) {
@@ -902,25 +910,23 @@ func TestGenerateAdminKeyPair(t *testing.T) {
 	// Verify private key
 	assert.Contains(t, privKeyStr, "EC PRIVATE KEY", "Private key should be in PEM format")
 
-	privKeyBlock, _ := pem.Decode([]byte(privKeyStr))
-	require.NotNil(t, privKeyBlock, "Private key PEM should decode")
-
-	privateKey, err := x509.ParseECPrivateKey(privKeyBlock.Bytes)
-	require.NoError(t, err, "Private key should parse")
-	assert.Equal(t, elliptic.P256(), privateKey.Curve, "Should use P256 curve")
+	privKey, err := cryptoutils.NewAppPrivkey([]byte(privKeyStr))
+	require.NoError(t, err, "Private key should be valid")
 
 	// Verify public key
 	assert.Contains(t, pubKeyStr, "PUBLIC KEY", "Public key should be in PEM format")
 
-	pubKeyBlock, _ := pem.Decode([]byte(pubKeyStr))
-	require.NotNil(t, pubKeyBlock, "Public key PEM should decode")
+	pubKey, err := cryptoutils.NewAppPubkey([]byte(pubKeyStr))
+	require.NoError(t, err, "Public key should be valid")
 
-	pubKey, err := x509.ParsePKIXPublicKey(pubKeyBlock.Bytes)
-	require.NoError(t, err, "Public key should parse")
+	// Verify the keys correspond to each other
+	privKeyInterface, err := privKey.GetPrivateKey()
+	require.NoError(t, err)
+	privateKey := privKeyInterface.(*ecdsa.PrivateKey)
 
-	ecdsaPubKey, ok := pubKey.(*ecdsa.PublicKey)
-	assert.True(t, ok, "Public key should be ECDSA")
-	assert.Equal(t, elliptic.P256(), ecdsaPubKey.Curve, "Should use P256 curve")
+	pubKeyInterface, err := pubKey.GetPublicKey()
+	require.NoError(t, err)
+	ecdsaPubKey := pubKeyInterface.(*ecdsa.PublicKey)
 
 	// Verify the keys correspond to each other
 	pub1X, pub1Y := privateKey.PublicKey.X, privateKey.PublicKey.Y
@@ -939,8 +945,10 @@ func TestComputeFingerprint(t *testing.T) {
 
 	// Verify fingerprint is a valid hex string of correct length (SHA-256 = 32 bytes = 64 hex chars)
 	assert.Len(t, fingerprint, 64, "Fingerprint should be 64 hex characters")
-	_, err = hex.DecodeString(fingerprint)
-	assert.NoError(t, err, "Fingerprint should be valid hex")
+
+	// Create a ContentID from hex string
+	_, err = interfaces.NewContentIDFromHex(fingerprint)
+	assert.NoError(t, err, "Fingerprint should be valid hex for ContentID")
 
 	// Compute again to verify determinism
 	fingerprint2, err := ComputeFingerprint([]byte(pubKeyStr))
@@ -1054,8 +1062,12 @@ func TestAdminHandler_EndToEnd_GenerateAndRetrieve(t *testing.T) {
 			Bytes: privateKeyBytes,
 		})
 
+		// Create AppPrivkey
+		privKey, err := cryptoutils.NewAppPrivkey(privateKeyPEM)
+		require.NoError(t, err)
+
 		// Decrypt the share
-		decryptedShare, err := cryptoutils.DecryptWithPrivateKey(privateKeyPEM, encryptedShare)
+		decryptedShare, err := cryptoutils.DecryptWithPrivateKey(privKey, encryptedShare)
 		require.NoError(t, err)
 
 		retrievedShares[adminID] = decryptedShare

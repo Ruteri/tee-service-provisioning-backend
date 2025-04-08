@@ -50,7 +50,7 @@ func (k *SimpleKMS) GetPKI(contractAddr interfaces.ContractAddress) (interfaces.
 	}
 
 	// Create a self-signed CA certificate
-	certPEM, err := createCACertificate(caKey, contractAddr)
+	certPEM, err := createCACertificate(caKey, interfaces.NewAppCommonName(contractAddr))
 	if err != nil {
 		return interfaces.AppPKI{}, err
 	}
@@ -131,7 +131,7 @@ func (k *SimpleKMS) SignCSR(contractAddr interfaces.ContractAddress, csr interfa
 		return nil, err
 	}
 
-	caCertPEM, err := createCACertificate(caKey, contractAddr)
+	caCertPEM, err := createCACertificate(caKey, interfaces.NewAppCommonName(contractAddr))
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +208,7 @@ func (k *SimpleKMS) deriveKey(contractAddr interfaces.ContractAddress, purpose s
 // The certificate is valid for 10 years and is suitable for signing instance certificates.
 // It has key usage for certificate signing, CRL signing, and digital signatures.
 // The certificate is returned in PEM format.
-func createCACertificate(caKey *ecdsa.PrivateKey, contractAddr interfaces.ContractAddress) ([]byte, error) {
+func createCACertificate(caKey *ecdsa.PrivateKey, cn interfaces.AppCommonName) (interfaces.CACert, error) {
 	// Generate serial number
 	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {
@@ -220,7 +220,7 @@ func createCACertificate(caKey *ecdsa.PrivateKey, contractAddr interfaces.Contra
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
 			Organization: []string{"SimpleKMS"},
-			CommonName:   fmt.Sprintf("CA for %x", contractAddr),
+			CommonName:   fmt.Sprintf("CA for %s", cn),
 		},
 		NotBefore:             time.Now(),
 		NotAfter:              time.Now().AddDate(10, 0, 0), // 10 years validity

@@ -2,7 +2,6 @@ package storage
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"log/slog"
 	"os"
@@ -81,9 +80,7 @@ func (b *FileBackend) Fetch(ctx context.Context, id interfaces.ContentID, conten
 // Store saves data to the file system and returns its content identifier.
 // The identifier is the SHA-256 hash of the data.
 func (b *FileBackend) Store(ctx context.Context, data []byte, contentType interfaces.ContentType) (interfaces.ContentID, error) {
-	// Generate content ID by hashing the data
-	hash := sha256.Sum256(data)
-	id := interfaces.ContentID(hash)
+	id := interfaces.ComputeID(data)
 
 	// Get file path
 	filePath := b.getFilePath(id, contentType)

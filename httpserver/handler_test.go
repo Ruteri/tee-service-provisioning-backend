@@ -31,12 +31,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Test HandleRegister - Success Path
-func TestHandleRegister_Success(t *testing.T) {
+// setupTestEnvironment creates common test components
+func setupTestEnvironment(t *testing.T) (string, *slog.Logger, interfaces.KMS, interfaces.StorageBackendFactory, *storage.FileBackend) {
 	// Create temporary storage directory
-	tempDir, err := os.MkdirTemp("", "file-storage-*")
+	tempDir, err := os.MkdirTemp("", "tee-test-")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
 
 	// Create logger with no output for tests
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -55,7 +54,15 @@ func TestHandleRegister_Success(t *testing.T) {
 	fileBackend, err := storage.NewFileBackend(tempDir, logger)
 	require.NoError(t, err)
 
-	// Set up mock registry factory (we still need this since it depends on blockchain)
+	return tempDir, logger, kmsInstance, storageFactory, fileBackend
+}
+
+// Test HandleRegister - Success Path
+func TestHandleRegister_Success(t *testing.T) {
+	tempDir, logger, kmsInstance, storageFactory, fileBackend := setupTestEnvironment(t)
+	defer os.RemoveAll(tempDir)
+
+	// Set up mock registry factory
 	mockRegistryFactory := new(registry.MockRegistryFactory)
 	mockRegistry := new(registry.MockRegistry)
 
@@ -79,7 +86,7 @@ func TestHandleRegister_Success(t *testing.T) {
 	handler := NewHandler(kmsInstance, storageFactory, mockRegistryFactory, logger)
 
 	// Create test CSR
-	_, csr, err := cryptoutils.CreateCSRWithRandomKey("test.app")
+	_, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(contractAddr).String())
 	require.NoError(t, err)
 
 	// Create request with contract address in URL
@@ -135,25 +142,10 @@ func TestHandleRegister_Success(t *testing.T) {
 
 // Test HandleRegister - Identity Not Whitelisted
 func TestHandleRegister_IdentityNotWhitelisted(t *testing.T) {
-	// Create temporary storage directory
-	tempDir, err := os.MkdirTemp("", "file-storage-*")
-	require.NoError(t, err)
+	tempDir, logger, kmsInstance, storageFactory, _ := setupTestEnvironment(t)
 	defer os.RemoveAll(tempDir)
 
-	// Create logger with no output for tests
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
-	// Set up real KMS
-	masterKey := make([]byte, 32)
-	_, err = rand.Read(masterKey)
-	require.NoError(t, err)
-	kmsInstance, err := kms.NewSimpleKMS(masterKey)
-	require.NoError(t, err)
-
-	// Set up real storage factory
-	storageFactory := storage.NewStorageBackendFactory(logger, nil)
-
-	// Set up mock registry factory (we still need this since it depends on blockchain)
+	// Set up mock registry factory
 	mockRegistryFactory := new(registry.MockRegistryFactory)
 	mockRegistry := new(registry.MockRegistry)
 
@@ -170,7 +162,7 @@ func TestHandleRegister_IdentityNotWhitelisted(t *testing.T) {
 	handler := NewHandler(kmsInstance, storageFactory, mockRegistryFactory, logger)
 
 	// Create test CSR
-	_, csr, err := cryptoutils.CreateCSRWithRandomKey("test.app")
+	_, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(contractAddr).String())
 	require.NoError(t, err)
 
 	// Create request with contract address in URL
@@ -219,20 +211,9 @@ func TestHandleRegister_IdentityNotWhitelisted(t *testing.T) {
 
 // Test HandleAppMetadata - Success Path
 func TestHandleAppMetadata_Success(t *testing.T) {
-	// Create logger with no output for tests
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	_, logger, kmsInstance, storageFactory, _ := setupTestEnvironment(t)
 
-	// Set up real KMS
-	masterKey := make([]byte, 32)
-	_, err := rand.Read(masterKey)
-	require.NoError(t, err)
-	kmsInstance, err := kms.NewSimpleKMS(masterKey)
-	require.NoError(t, err)
-
-	// Set up real storage factory
-	storageFactory := storage.NewStorageBackendFactory(logger, nil)
-
-	// Set up mock registry factory (we still need this since it depends on blockchain)
+	// Set up mock registry factory
 	mockRegistryFactory := new(registry.MockRegistryFactory)
 
 	// Set up test data
@@ -278,27 +259,8 @@ func TestHandleAppMetadata_Success(t *testing.T) {
 // TestConfigReferenceResolution tests that the handler correctly resolves
 // config and secret references in a template.
 func TestConfigReferenceResolution(t *testing.T) {
-	// Create temporary storage directory
-	tempDir, err := os.MkdirTemp("", "reference-test-")
-	require.NoError(t, err)
+	tempDir, logger, kmsInstance, storageFactory, fileBackend := setupTestEnvironment(t)
 	defer os.RemoveAll(tempDir)
-
-	// Create logger with no output for tests
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
-	// Set up real KMS
-	masterKey := make([]byte, 32)
-	_, err = rand.Read(masterKey)
-	require.NoError(t, err)
-	kmsInstance, err := kms.NewSimpleKMS(masterKey)
-	require.NoError(t, err)
-
-	// Set up real storage backend
-	fileBackend, err := storage.NewFileBackend(tempDir, logger)
-	require.NoError(t, err)
-
-	// Set up real storage factory
-	storageFactory := storage.NewStorageBackendFactory(logger, nil)
 
 	// Set up mock registry factory
 	mockRegistryFactory := new(registry.MockRegistryFactory)
@@ -333,8 +295,8 @@ func TestConfigReferenceResolution(t *testing.T) {
 	templateStr := fmt.Sprintf(`{
 		"app": "test-application",
 		"version": "1.0.0",
-		"database": "__CONFIG_REF_%x",
-		"logging": "__CONFIG_REF_%x",
+		"database": "__CONFIG_REF_%s",
+		"logging": "__CONFIG_REF_%s",
 		"settings": {
 			"max_connections": 100,
 			"timeout": 30
@@ -356,7 +318,7 @@ func TestConfigReferenceResolution(t *testing.T) {
 	handler := NewHandler(kmsInstance, storageFactory, mockRegistryFactory, logger)
 
 	// Create test CSR
-	_, csr, err := cryptoutils.CreateCSRWithRandomKey("test.app")
+	_, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(contractAddr).String())
 	require.NoError(t, err)
 
 	// Create test request
@@ -391,13 +353,13 @@ func TestConfigReferenceResolution(t *testing.T) {
 	// Verify response
 	resp := w.Result()
 	defer resp.Body.Close()
+	responseBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
 
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(responseBody))
 
 	// Parse the response
 	var result map[string]interface{}
-	responseBody, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
 	err = json.Unmarshal(responseBody, &result)
 	require.NoError(t, err)
 
@@ -424,17 +386,15 @@ func TestConfigReferenceResolution(t *testing.T) {
 	assert.Equal(t, "json", logging["format"])
 	assert.Equal(t, "stdout", logging["output"])
 
-	// Verify original settings are still there
+	// Verify original fields are preserved
 	settings, ok := resolvedConfig["settings"].(map[string]interface{})
 	require.True(t, ok)
 	assert.Equal(t, float64(100), settings["max_connections"])
 	assert.Equal(t, float64(30), settings["timeout"])
-
-	// Verify original app and version fields are preserved
 	assert.Equal(t, "test-application", resolvedConfig["app"])
 	assert.Equal(t, "1.0.0", resolvedConfig["version"])
 
-	// Verify mock expectations were met
+	// Verify mock expectations
 	mockRegistryFactory.AssertExpectations(t)
 	mockRegistry.AssertExpectations(t)
 }
@@ -442,27 +402,8 @@ func TestConfigReferenceResolution(t *testing.T) {
 // TestServerSideDecryption tests that pre-encrypted secrets are correctly
 // decrypted by the handler and included as plaintext in the config
 func TestServerSideDecryption(t *testing.T) {
-	// Create temporary storage directory
-	tempDir, err := os.MkdirTemp("", "server-decryption-test-")
-	require.NoError(t, err)
+	tempDir, logger, kmsInstance, storageFactory, fileBackend := setupTestEnvironment(t)
 	defer os.RemoveAll(tempDir)
-
-	// Create logger
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
-	// Setup real storage backend
-	fileBackend, err := storage.NewFileBackend(tempDir, logger)
-	require.NoError(t, err)
-
-	// Setup real KMS
-	masterKey := make([]byte, 32)
-	_, err = rand.Read(masterKey)
-	require.NoError(t, err)
-	kmsInstance, err := kms.NewSimpleKMS(masterKey)
-	require.NoError(t, err)
-
-	// Setup storage factory
-	storageFactory := storage.NewStorageBackendFactory(logger, nil)
 
 	// Setup mock registry
 	mockRegistryFactory := new(registry.MockRegistryFactory)
@@ -493,7 +434,7 @@ func TestServerSideDecryption(t *testing.T) {
 	configTemplate := []byte(fmt.Sprintf(`{
 		"app": "test-app",
 		"version": "1.0.0",
-		"credentials": "__SECRET_REF_%x",
+		"credentials": "__SECRET_REF_%s",
 		"settings": {
 			"timeout": 30
 		}
@@ -515,12 +456,13 @@ func TestServerSideDecryption(t *testing.T) {
 	// Create test request data
 	attestationType := qemuTDX
 	measurements := map[string]string{"0": "00", "1": "01"}
-	_, csr, err := cryptoutils.CreateCSRWithRandomKey("test.app")
+	_, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(contractAddr).String())
 	require.NoError(t, err)
 
-	// Call handleRegister
-	_, _, processedConfig, err := handler.handleRegister(ctx, attestationType, measurements, contractAddr, csr)
+	// Call handleRegister directly
+	appPrivkey, _, processedConfig, err := handler.handleRegister(ctx, attestationType, measurements, contractAddr, csr)
 	require.NoError(t, err)
+	require.NotNil(t, appPrivkey)
 
 	// Parse the processed config
 	var config map[string]interface{}
@@ -543,35 +485,16 @@ func TestServerSideDecryption(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, float64(30), settings["timeout"])
 
-	// Verify mock expectations were met
+	// Verify mock expectations
 	mockRegistryFactory.AssertExpectations(t)
 	mockRegistry.AssertExpectations(t)
 }
 
 // TestComplexConfigWithServerDecryption tests a complex configuration with
-// multiple pre-encrypted secrets at different levels, all decrypted by the server
+// multiple pre-encrypted secrets at different levels
 func TestComplexConfigWithServerDecryption(t *testing.T) {
-	// Create temporary storage directory
-	tempDir, err := os.MkdirTemp("", "complex-server-decryption-test-")
-	require.NoError(t, err)
+	tempDir, logger, kmsInstance, storageFactory, fileBackend := setupTestEnvironment(t)
 	defer os.RemoveAll(tempDir)
-
-	// Create logger
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
-	// Setup real storage backend
-	fileBackend, err := storage.NewFileBackend(tempDir, logger)
-	require.NoError(t, err)
-
-	// Setup real KMS
-	masterKey := make([]byte, 32)
-	_, err = rand.Read(masterKey)
-	require.NoError(t, err)
-	kmsInstance, err := kms.NewSimpleKMS(masterKey)
-	require.NoError(t, err)
-
-	// Setup storage factory
-	storageFactory := storage.NewStorageBackendFactory(logger, nil)
 
 	// Setup mock registry
 	mockRegistryFactory := new(registry.MockRegistryFactory)
@@ -610,7 +533,7 @@ func TestComplexConfigWithServerDecryption(t *testing.T) {
 		"host": "db.example.com",
 		"port": 5432,
 		"db_name": "appdb",
-		"credentials": "__SECRET_REF_%x"
+		"credentials": "__SECRET_REF_%s"
 	}`, dbCredID))
 
 	dbConfigID, err := fileBackend.Store(ctx, databaseConfig, interfaces.ConfigType)
@@ -620,11 +543,11 @@ func TestComplexConfigWithServerDecryption(t *testing.T) {
 	configTemplate := []byte(fmt.Sprintf(`{
 		"app": "complex-app",
 		"version": "2.0.0",
-		"database": "__CONFIG_REF_%x",
+		"database": "__CONFIG_REF_%s",
 		"api": {
 			"url": "https://api.example.com",
 			"version": "v2",
-			"credentials": "__SECRET_REF_%x"
+			"credentials": "__SECRET_REF_%s"
 		},
 		"settings": {
 			"timeout": 30,
@@ -648,7 +571,7 @@ func TestComplexConfigWithServerDecryption(t *testing.T) {
 	// Create test request data
 	attestationType := qemuTDX
 	measurements := map[string]string{"0": "00", "1": "01"}
-	_, csr, err := cryptoutils.CreateCSRWithRandomKey("test.app")
+	_, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(contractAddr).String())
 	require.NoError(t, err)
 
 	// Call handleRegister
@@ -680,34 +603,15 @@ func TestComplexConfigWithServerDecryption(t *testing.T) {
 	assert.Equal(t, "abcdef123456", apiCreds["api_key"])
 	assert.Equal(t, "secretxyz", apiCreds["api_secret"])
 
-	// Verify mock expectations were met
+	// Verify mock expectations
 	mockRegistryFactory.AssertExpectations(t)
 	mockRegistry.AssertExpectations(t)
 }
 
 // TestDecryptionFailure tests handling of decryption failures
 func TestDecryptionFailure(t *testing.T) {
-	// Create temporary storage directory
-	tempDir, err := os.MkdirTemp("", "decryption-failure-test-")
-	require.NoError(t, err)
+	tempDir, logger, kmsInstance, storageFactory, fileBackend := setupTestEnvironment(t)
 	defer os.RemoveAll(tempDir)
-
-	// Create logger
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
-	// Setup real storage backend
-	fileBackend, err := storage.NewFileBackend(tempDir, logger)
-	require.NoError(t, err)
-
-	// Setup real KMS
-	masterKey := make([]byte, 32)
-	_, err = rand.Read(masterKey)
-	require.NoError(t, err)
-	kmsInstance, err := kms.NewSimpleKMS(masterKey)
-	require.NoError(t, err)
-
-	// Setup storage factory
-	storageFactory := storage.NewStorageBackendFactory(logger, nil)
 
 	// Setup mock registry
 	mockRegistryFactory := new(registry.MockRegistryFactory)
@@ -744,7 +648,7 @@ func TestDecryptionFailure(t *testing.T) {
 	configTemplate := []byte(fmt.Sprintf(`{
 		"app": "test-app",
 		"version": "1.0.0",
-		"credentials": "__SECRET_REF_%x"
+		"credentials": "__SECRET_REF_%s"
 	}`, secretID))
 
 	// Store the template
@@ -763,41 +667,22 @@ func TestDecryptionFailure(t *testing.T) {
 	// Create test request data
 	attestationType := qemuTDX
 	measurements := map[string]string{"0": "00", "1": "01"}
-	_, csr, err := cryptoutils.CreateCSRWithRandomKey("test.app")
+	_, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(contractAddr).String())
 	require.NoError(t, err)
 
 	// Call handleRegister - decryption should fail but not crash
 	_, _, _, err = handler.handleRegister(ctx, attestationType, measurements, contractAddr, csr)
 	require.Error(t, err)
 
-	// Verify mock expectations were met
+	// Verify mock expectations
 	mockRegistryFactory.AssertExpectations(t)
 	mockRegistry.AssertExpectations(t)
 }
 
 // TestNonJSONSecret tests handling of non-JSON secret data
 func TestNonJSONSecret(t *testing.T) {
-	// Create temporary storage directory
-	tempDir, err := os.MkdirTemp("", "non-json-secret-test-")
-	require.NoError(t, err)
+	tempDir, logger, kmsInstance, storageFactory, fileBackend := setupTestEnvironment(t)
 	defer os.RemoveAll(tempDir)
-
-	// Create logger
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
-	// Setup real storage backend
-	fileBackend, err := storage.NewFileBackend(tempDir, logger)
-	require.NoError(t, err)
-
-	// Setup real KMS
-	masterKey := make([]byte, 32)
-	_, err = rand.Read(masterKey)
-	require.NoError(t, err)
-	kmsInstance, err := kms.NewSimpleKMS(masterKey)
-	require.NoError(t, err)
-
-	// Setup storage factory
-	storageFactory := storage.NewStorageBackendFactory(logger, nil)
 
 	// Setup mock registry
 	mockRegistryFactory := new(registry.MockRegistryFactory)
@@ -828,7 +713,7 @@ func TestNonJSONSecret(t *testing.T) {
 	configTemplate := []byte(fmt.Sprintf(`{
 		"app": "test-app",
 		"version": "1.0.0",
-		"api_token": "__SECRET_REF_%x"
+		"api_token": "__SECRET_REF_%s"
 	}`, secretID))
 
 	// Store the template
@@ -847,7 +732,7 @@ func TestNonJSONSecret(t *testing.T) {
 	// Create test request data
 	attestationType := qemuTDX
 	measurements := map[string]string{"0": "00", "1": "01"}
-	_, csr, err := cryptoutils.CreateCSRWithRandomKey("test.app")
+	_, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(contractAddr).String())
 	require.NoError(t, err)
 
 	// Call handleRegister
@@ -859,7 +744,7 @@ func TestNonJSONSecret(t *testing.T) {
 	err = json.Unmarshal(processedConfig, &config)
 	require.Error(t, err)
 
-	// Verify mock expectations were met
+	// Verify mock expectations
 	mockRegistryFactory.AssertExpectations(t)
 	mockRegistry.AssertExpectations(t)
 }

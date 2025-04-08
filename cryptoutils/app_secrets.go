@@ -215,7 +215,7 @@ func VerifyCertificate(keyPEM, certPEM []byte, expectedCN string) error {
 //   - Private key in PEM format
 //   - CSR in PEM format
 //   - Error if key generation or CSR creation fails
-func CreateCSRWithRandomKey(cn string) ([]byte, []byte, error) {
+func CreateCSRWithRandomKey(cn string) ([]byte, TLSCSR, error) {
 	// Generate a new ECDSA private key
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -245,7 +245,7 @@ func CreateCSRWithRandomKey(cn string) ([]byte, []byte, error) {
 	}
 
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privateKeyBytes})
-	return keyPEM, csrPEM, nil
+	return keyPEM, TLSCSR(csrPEM), nil
 }
 
 // DeriveDiskKey creates a deterministic encryption key from a CSR and secret using Argon2id KDF.

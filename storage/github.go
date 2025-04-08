@@ -49,7 +49,7 @@ func NewGitHubBackend(owner, repo string, log *slog.Logger) *GitHubBackend {
 // Fetch retrieves data from GitHub by directly using the ContentID as a blob SHA.
 func (b *GitHubBackend) Fetch(ctx context.Context, id interfaces.ContentID, contentType interfaces.ContentType) ([]byte, error) {
 	// Convert the ContentID to a hex string to use as blob SHA
-	blobSHA := hex.EncodeToString(id[:])
+	blobSHA := id.String()
 
 	// Fetch the blob directly
 	blob, err := b.fetchBlob(ctx, blobSHA)

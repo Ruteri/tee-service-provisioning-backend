@@ -329,7 +329,12 @@ func (h *Handler) handleRegister(ctx context.Context, attestationType string, me
 	// Convert []string to []StorageBackendLocation for CreateMultiBackend
 	locationURIs := make([]interfaces.StorageBackendLocation, len(backendLocations))
 	for i, loc := range backendLocations {
-		locationURIs[i] = interfaces.StorageBackendLocation(loc)
+		locationURI, err := interfaces.NewStorageBackendLocation(loc)
+		if err != nil {
+			h.log.Debug("invalid location uri, ignoring", "err", err)
+		} else {
+			locationURIs[i] = locationURI
+		}
 	}
 
 	lazyTlsAuthCert := func() (tls.Certificate, error) {

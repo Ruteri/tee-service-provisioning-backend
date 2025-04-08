@@ -97,7 +97,7 @@ func (r *RegistryAppResolver) GetAppMetadata(contractAddr interfaces.ContractAdd
 // It creates a new CSR, registers with the provisioning system, and returns
 // the resulting certificate for secure communication.
 func (r *RegistryAppResolver) GetCert(contractAddr interfaces.ContractAddress) (*tls.Certificate, error) {
-	privateKeyPEM, csr, err := cryptoutils.CreateCSRWithRandomKey(fmt.Sprintf("%x.app", contractAddr))
+	privateKeyPEM, csr, err := cryptoutils.CreateCSRWithRandomKey(contractAddr.String())
 	if err != nil {
 		return nil, err
 	}

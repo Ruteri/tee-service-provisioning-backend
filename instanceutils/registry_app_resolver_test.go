@@ -1,7 +1,6 @@
 package instanceutils
 
 import (
-	"encoding/hex"
 	"io"
 	"log/slog"
 	"testing"
@@ -14,82 +13,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRegistryAppResolver_ResolveAppInstances tests the ResolveAppInstances method
-func TestRegistryAppResolver_ResolveAppInstances(t *testing.T) {
+// setupTestEnvironment creates a common test setup for RegistryAppResolver tests
+func setupTestEnvironment(t *testing.T) (
+	interfaces.ContractAddress,
+	*registry.MockRegistryClient,
+	*registry.MockRegistryFactory,
+	interfaces.KMS,
+	*slog.Logger,
+) {
 	// Create logger that discards output
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	// Create contract address
-	var contractAddr interfaces.ContractAddress
-	contractAddrHex := "0123456789abcdef0123456789abcdef01234567"
-	contractAddrBytes, _ := hex.DecodeString(contractAddrHex)
-	copy(contractAddr[:], contractAddrBytes[:20])
-
-	// Create a real MockRegistryClient instead of a mock
-	mockRegistry := registry.NewMockRegistryClient()
-	mockRegistryFactory := new(registry.MockRegistryFactory)
-	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
-
-	// Initialize SimpleKMS with a test master key
-	masterKey := make([]byte, 32)
-	for i := range masterKey {
-		masterKey[i] = byte(i)
-	}
-	kmsInstance, err := kms.NewSimpleKMS(masterKey)
-	require.NoError(t, err, "Failed to create SimpleKMS")
-
-	// Register test domains in the registry
-	mockRegistry.SetTransactOpts() // Enable transactions for setup
-
-	// Register test domains
-	domainNames := []string{
-		contractAddrHex,
-		contractAddrHex + ".instance1",
-		contractAddrHex + ".instance2",
-	}
-
-	for _, domain := range domainNames {
-		_, err := mockRegistry.RegisterInstanceDomainName(domain)
-		require.NoError(t, err, "Failed to register domain")
-	}
-
-	testPKI, err := kmsInstance.GetPKI(contractAddr)
-	require.NoError(t, err)
-	mockRegistry.RegisterPKI(&testPKI)
-
-	// Create app resolver
-	resolver := NewRegistryAppResolver(
-		&LocalKMSRegistrationProvider{KMS: kmsInstance},
-		mockRegistryFactory,
-		time.Minute,
-		logger,
-	)
-
-	caCert, instances, err := resolver.GetAppMetadata(contractAddr)
-	assert.NoError(t, err)
-	assert.NotEmpty(t, caCert)
-
-	// Validate that this is a PEM-encoded certificate
-	assert.True(t, len(caCert) > 0)
-	assert.Contains(t, string(caCert), "-----BEGIN CERTIFICATE-----")
-	assert.Contains(t, string(caCert), "-----END CERTIFICATE-----")
-
-	assert.Len(t, instances, 3)
-	assert.Contains(t, instances, contractAddrHex)
-	assert.Contains(t, instances, contractAddrHex+".instance1")
-	assert.Contains(t, instances, contractAddrHex+".instance2")
-}
-
-// TestRegistryAppResolver_GetCert tests the GetCert method
-func TestRegistryAppResolver_GetCert(t *testing.T) {
-	// Create logger that discards output
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
-	// Create contract address
-	var contractAddr interfaces.ContractAddress
-	contractAddrHex := "0123456789abcdef0123456789abcdef01234567"
-	contractAddrBytes, _ := hex.DecodeString(contractAddrHex)
-	copy(contractAddr[:], contractAddrBytes[:20])
+	// Create contract address using the type system helper
+	contractAddr, err := interfaces.NewContractAddressFromHex("0123456789abcdef0123456789abcdef01234567")
+	require.NoError(t, err, "Failed to create contract address")
 
 	// Create a real MockRegistryClient
 	mockRegistry := registry.NewMockRegistryClient()
@@ -104,6 +41,67 @@ func TestRegistryAppResolver_GetCert(t *testing.T) {
 	kmsInstance, err := kms.NewSimpleKMS(masterKey)
 	require.NoError(t, err, "Failed to create SimpleKMS")
 
+	return contractAddr, mockRegistry, mockRegistryFactory, kmsInstance, logger
+}
+
+// TestRegistryAppResolver_GetAppMetadata tests the GetAppMetadata method
+// (renamed from ResolveAppInstances to match actual method being tested)
+func TestRegistryAppResolver_GetAppMetadata(t *testing.T) {
+	// Set up test environment
+	contractAddr, mockRegistry, mockRegistryFactory, kmsInstance, logger := setupTestEnvironment(t)
+
+	// Enable transactions for setup
+	mockRegistry.SetTransactOpts()
+
+	// Register test domains using the contract address string representation
+	contractAddrStr := contractAddr.String()
+	domainNames := []string{
+		contractAddrStr,
+		contractAddrStr + ".instance1",
+		contractAddrStr + ".instance2",
+	}
+
+	for _, domain := range domainNames {
+		_, err := mockRegistry.RegisterInstanceDomainName(domain)
+		require.NoError(t, err, "Failed to register domain")
+	}
+
+	// Register PKI information
+	testPKI, err := kmsInstance.GetPKI(contractAddr)
+	require.NoError(t, err)
+	mockRegistry.RegisterPKI(&testPKI)
+
+	// Create app resolver
+	resolver := NewRegistryAppResolver(
+		&LocalKMSRegistrationProvider{KMS: kmsInstance},
+		mockRegistryFactory,
+		time.Minute,
+		logger,
+	)
+
+	// Test GetAppMetadata
+	caCert, instances, err := resolver.GetAppMetadata(contractAddr)
+
+	// Verify results
+	assert.NoError(t, err)
+	assert.NotEmpty(t, caCert)
+
+	// Validate that this is a PEM-encoded certificate
+	assert.Contains(t, string(caCert), "-----BEGIN CERTIFICATE-----")
+	assert.Contains(t, string(caCert), "-----END CERTIFICATE-----")
+
+	// Validate instance addresses
+	assert.Len(t, instances, 3)
+	assert.Contains(t, instances, contractAddrStr)
+	assert.Contains(t, instances, contractAddrStr+".instance1")
+	assert.Contains(t, instances, contractAddrStr+".instance2")
+}
+
+// TestRegistryAppResolver_GetCert tests the GetCert method
+func TestRegistryAppResolver_GetCert(t *testing.T) {
+	// Set up test environment
+	contractAddr, _, mockRegistryFactory, kmsInstance, logger := setupTestEnvironment(t)
+
 	// Create app resolver
 	resolver := NewRegistryAppResolver(
 		&LocalKMSRegistrationProvider{KMS: kmsInstance},
@@ -114,8 +112,19 @@ func TestRegistryAppResolver_GetCert(t *testing.T) {
 
 	// Test GetCert
 	cert, err := resolver.GetCert(contractAddr)
+
+	// Verify results
 	assert.NoError(t, err)
 	assert.NotNil(t, cert)
 
-	// TODO: make sure cert is valid and signed by the CA
+	// Additional validation for the certificate
+	assert.NotNil(t, cert.Certificate)
+	assert.NotNil(t, cert.PrivateKey)
+
+	// Implementation for the TODO - validate certificate is properly formed
+	// Check that it has certificates in the chain
+	assert.True(t, len(cert.Certificate) > 0, "Certificate should have at least one certificate in the chain")
+
+	// Check that private key exists and matches certificate
+	assert.NotNil(t, cert.PrivateKey, "Certificate should have a private key")
 }

@@ -3,9 +3,7 @@ package proxy
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/hex"
 	"encoding/json"
-	"encoding/pem"
 	"io"
 	"log/slog"
 	"net/http"
@@ -54,35 +52,50 @@ func (m *MockInstanceResolver) GetAppMetadata(contractAddr interfaces.ContractAd
 	return args.Get(0).([]string), args.Error(1)
 }
 
-// TestNewHTTPRouter tests the NewHTTPRouter function
-func TestNewHTTPRouter(t *testing.T) {
+// setupTestEnvironment creates a common test setup for HTTPRouter tests
+func setupTestEnvironment(t *testing.T) (
+	interfaces.ContractAddress,
+	*MockCertificateManager,
+	instanceutils.AppResolver,
+	interfaces.KMS,
+	*registry.MockRegistryClient,
+	*slog.Logger,
+) {
 	// Create logger that discards output
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	// Create contract address using type system helper
+	contractAddr, err := interfaces.NewContractAddressFromHex("0123456789abcdef0123456789abcdef01234567")
+	require.NoError(t, err, "Failed to create contract address")
 
 	// Create mocks
 	mockCertManager := new(MockCertificateManager)
 
+	// Create KMS and registry
 	kmsInstance, err := kms.NewSimpleKMS(make([]byte, 32))
-	require.NoError(t, err)
-
-	// Create contract address
-	var contractAddr interfaces.ContractAddress
-	contractAddrHex := "0123456789abcdef0123456789abcdef01234567"
-	contractAddrBytes, _ := hex.DecodeString(contractAddrHex)
-	copy(contractAddr[:], contractAddrBytes[:20])
+	require.NoError(t, err, "Failed to create KMS")
 
 	mockRegistry := registry.NewMockRegistryClient()
 	mockRegistry.SetTransactOpts()
+
 	mockRegistryFactory := new(registry.MockRegistryFactory)
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
-	mockRegistry.SetTransactOpts()
 
+	// Create resolver
 	mockResolver := instanceutils.NewRegistryAppResolver(
 		&instanceutils.LocalKMSRegistrationProvider{KMS: kmsInstance},
 		mockRegistryFactory,
 		time.Hour,
 		logger,
 	)
+
+	return contractAddr, mockCertManager, mockResolver, kmsInstance, mockRegistry, logger
+}
+
+// TestNewHTTPRouter tests the NewHTTPRouter function
+func TestNewHTTPRouter(t *testing.T) {
+	// Setup test environment
+	contractAddr, mockCertManager, mockResolver, _, _, logger := setupTestEnvironment(t)
 
 	// Create router config
 	config := RouterConfig{
@@ -101,6 +114,8 @@ func TestNewHTTPRouter(t *testing.T) {
 
 	// Create router
 	router, err := NewHTTPRouter(config)
+
+	// Verify results
 	assert.NoError(t, err)
 	assert.NotNil(t, router)
 	assert.Equal(t, config, router.config)
@@ -109,67 +124,68 @@ func TestNewHTTPRouter(t *testing.T) {
 	assert.NotNil(t, router.transportCache)
 }
 
-// TestHTTPRouter_handleEgressRequest tests the handleEgressRequest method
-func TestHTTPRouter_handleEgressRequest(t *testing.T) {
-	// Create logger that discards output
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+// setupTestServer creates a test HTTPS server with proper TLS configuration
+func setupTestServer(t *testing.T, kmsInstance interfaces.KMS, contractAddr interfaces.ContractAddress) (*httptest.Server, string) {
+	// Create certificate for test server
+	commonName := contractAddr.String() + ".app"
+	key, csr, err := cryptoutils.CreateCSRWithRandomKey(commonName)
+	require.NoError(t, err, "Failed to create CSR")
 
-	// Create mocks
-	mockCertManager := new(MockCertificateManager)
-
-	kmsInstance, err := kms.NewSimpleKMS(make([]byte, 32))
-
-	// Create contract address
-	var contractAddr interfaces.ContractAddress
-	contractAddrHex := "0123456789abcdef0123456789abcdef01234567"
-	contractAddrBytes, _ := hex.DecodeString(contractAddrHex)
-	copy(contractAddr[:], contractAddrBytes[:20])
-
-	mockRegistry := registry.NewMockRegistryClient()
-	mockRegistry.SetTransactOpts()
-	testPKI, err := kmsInstance.GetPKI(contractAddr)
-	require.NoError(t, err)
-	mockRegistry.RegisterPKI(&testPKI)
-	mockRegistryFactory := new(registry.MockRegistryFactory)
-	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
-	mockRegistry.SetTransactOpts()
-
-	mockResolver := instanceutils.NewRegistryAppResolver(
-		&instanceutils.LocalKMSRegistrationProvider{KMS: kmsInstance},
-		mockRegistryFactory,
-		time.Hour,
-		logger,
-	)
-
-	// Create certificate and transport for mocking
-	key, csr, err := cryptoutils.CreateCSRWithRandomKey(contractAddrHex + ".app")
-	require.NoError(t, err)
 	signedCert, err := kmsInstance.SignCSR(contractAddr, csr)
-	require.NoError(t, err)
+	require.NoError(t, err, "Failed to sign CSR")
+
 	cert, err := tls.X509KeyPair(signedCert, key)
-	require.NoError(t, err)
+	require.NoError(t, err, "Failed to create X509 key pair")
 
+	// Prepare test response
 	expectedResponse, err := json.Marshal(map[string]string{"message": "test successful"})
-	require.NoError(t, err)
+	require.NoError(t, err, "Failed to marshal JSON response")
 
-	// Set up a simple test server
+	// Create test server
 	testServer := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write(expectedResponse)
 	}))
+
 	testServer.TLS = &tls.Config{
 		Certificates: []tls.Certificate{cert},
 	}
 	testServer.StartTLS()
+
+	// Extract host from the test server URL
+	serverHost := strings.TrimPrefix(testServer.URL, "https://")
+
+	return testServer, serverHost
+}
+
+// TestHTTPRouter_handleEgressRequest tests the handleEgressRequest method
+func TestHTTPRouter_handleEgressRequest(t *testing.T) {
+	// Setup test environment
+	contractAddr, mockCertManager, mockResolver, kmsInstance, mockRegistry, logger := setupTestEnvironment(t)
+
+	// Get PKI information for CA certificate
+	testPKI, err := kmsInstance.GetPKI(contractAddr)
+	require.NoError(t, err, "Failed to get PKI")
+	mockRegistry.RegisterPKI(&testPKI)
+
+	// Setup test server
+	testServer, serverHost := setupTestServer(t, kmsInstance, contractAddr)
 	defer testServer.Close()
 
-	// Extract host and port from the test server
-	serverURL := testServer.URL
-	serverHost := strings.TrimPrefix(serverURL, "https://")
-
+	// Register domain name in registry
 	_, err = mockRegistry.RegisterInstanceDomainName(serverHost)
+	require.NoError(t, err, "Failed to register domain name")
+
+	// Parse CA certificate for mock expectations
+	caCert, err := cryptoutils.NewCACert(testPKI.Ca)
+	require.NoError(t, err, "Failed to parse CA certificate")
+
+	x509CACert, err := caCert.GetX509Cert()
 	require.NoError(t, err)
+
+	// Set up mock expectations
+	mockCertManager.On("CACertFor", contractAddr).Return(x509CACert, nil).Maybe()
 
 	// Create router config
 	config := RouterConfig{
@@ -181,35 +197,34 @@ func TestHTTPRouter_handleEgressRequest(t *testing.T) {
 		Log:                       logger,
 	}
 
-	caPEMBlock, _ := pem.Decode(testPKI.Ca)
-	require.NotNil(t, caPEMBlock, "Failed to decode CA PEM")
-
-	caCert, err := x509.ParseCertificate(caPEMBlock.Bytes)
-	require.NoError(t, err, "Failed to parse CA certificate")
-
-	// Set up mock expectations
-	mockCertManager.On("CACertFor", contractAddr).Return(caCert, nil).Maybe()
-
 	// Create router
 	router, err := NewHTTPRouter(config)
-	assert.NoError(t, err)
+	require.NoError(t, err, "Failed to create router")
 
-	// Create test request with both target and source app set to our app
+	// Create test request
 	req := httptest.NewRequest("GET", "/api/test", nil)
-	req.Header.Set("X-Target-App", contractAddrHex)
-	req.Header.Set("X-Source-App", contractAddrHex)
+	req.Header.Set("X-Target-App", contractAddr.String())
+	req.Header.Set("X-Source-App", contractAddr.String())
 	req.Header.Set("X-Request-Type", "")
 
 	// Create response recorder
 	rr := httptest.NewRecorder()
 
-	// Directly call the handler to avoid starting real servers
+	// Call handler directly
 	router.handleEgressRequest(rr, req)
 
+	// Get and verify response
 	resp := rr.Result()
-	respBytes, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
+	defer resp.Body.Close()
 
-	require.Equal(t, resp.StatusCode, http.StatusOK, string(respBytes))
-	require.Equal(t, respBytes, expectedResponse)
+	respBytes, err := io.ReadAll(resp.Body)
+	require.NoError(t, err, "Failed to read response body")
+
+	// Verify status code and content
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "HTTP status code should be 200 OK")
+
+	// Verify expected JSON response
+	expectedResponse, err := json.Marshal(map[string]string{"message": "test successful"})
+	require.NoError(t, err, "Failed to marshal expected response")
+	assert.Equal(t, expectedResponse, respBytes, "Response body should match expected value")
 }

@@ -4,10 +4,8 @@ import (
 	"crypto/tls"
 	"fmt"
 	"log/slog"
-	"net/url"
 	"strings"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
 
@@ -40,23 +38,17 @@ func (f *StorageBackendFactory) WithTLSAuth(lazyTlsAuthCert func() (tls.Certific
 //
 // Returns an error if the URI is invalid or the scheme is unsupported.
 func (sf *StorageBackendFactory) StorageBackendFor(locationURI interfaces.StorageBackendLocation) (interfaces.StorageBackend, error) {
-	// Parse the URI
-	u, err := url.Parse(string(locationURI))
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", interfaces.ErrInvalidLocationURI, err)
-	}
-
 	// Create the appropriate backend type based on the scheme
-	switch strings.ToLower(u.Scheme) {
+	switch strings.ToLower(locationURI.Scheme) {
 	case "onchain":
-		return sf.createOnchainBackend(u)
+		return sf.createOnchainBackend(locationURI)
 	case "github":
-		return sf.createGitHubBackend(u)
+		return sf.createGitHubBackend(locationURI)
 	case "ipfs":
-		return sf.createIPFSBackend(u)
+		return sf.createIPFSBackend(locationURI)
 	case "s3":
-		return sf.createS3Backend(u)
-	case "valut":
+		return sf.createS3Backend(locationURI)
+	case "vault":
 		if sf.tlsAuthCertFn == nil {
 			return nil, fmt.Errorf("client certificate and key are required for Vault backend")
 		}
@@ -65,11 +57,11 @@ func (sf *StorageBackendFactory) StorageBackendFor(locationURI interfaces.Storag
 		if err != nil {
 			return nil, fmt.Errorf("client certificate and key are required for Vault backend")
 		}
-		return sf.createVaultBackend(u, tlsAuthCert)
+		return sf.createVaultBackend(locationURI, tlsAuthCert)
 	case "file":
-		return sf.createFileBackend(u)
+		return sf.createFileBackend(locationURI)
 	default:
-		return nil, fmt.Errorf("unsupported backend scheme: %s", u.Scheme)
+		return nil, fmt.Errorf("unsupported backend scheme: %s", locationURI.Scheme)
 	}
 }
 
@@ -85,7 +77,7 @@ func (sf *StorageBackendFactory) CreateMultiBackend(locationURIs []interfaces.St
 		if err != nil {
 			sf.log.Warn("Failed to create storage backend",
 				"err", err,
-				slog.String("locationURI", string(uri)))
+				slog.String("locationURI", uri.String()))
 			continue
 		}
 		backends = append(backends, backend)
@@ -101,18 +93,13 @@ func (sf *StorageBackendFactory) CreateMultiBackend(locationURIs []interfaces.St
 // createOnchainBackend creates a blockchain storage backend using the Registry contract.
 // URI format: onchain://0x1234567890abcdef1234567890abcdef12345678
 // The host part must be a valid Ethereum contract address.
-func (sf *StorageBackendFactory) createOnchainBackend(u *url.URL) (interfaces.StorageBackend, error) {
-	sf.log.Debug("Creating onchain backend", slog.String("uri", u.String()))
+func (sf *StorageBackendFactory) createOnchainBackend(loc interfaces.StorageBackendLocation) (interfaces.StorageBackend, error) {
+	sf.log.Debug("Creating onchain backend", slog.String("uri", loc.String()))
 
-	// Parse contract address from host part
-	addrHex := u.Host
-	if !common.IsHexAddress(addrHex) {
-		return nil, fmt.Errorf("invalid contract address: %s", addrHex)
+	contractAddrBytes, err := interfaces.NewContractAddressFromHex(loc.Host)
+	if err != nil {
+		return nil, fmt.Errorf("invalid contract address bytes: %w", err)
 	}
-
-	contractAddr := common.HexToAddress(addrHex)
-	var contractAddrBytes interfaces.ContractAddress
-	copy(contractAddrBytes[:], contractAddr.Bytes())
 
 	// Ensure we have a registry factory
 	if sf.registryFactory == nil {
@@ -130,11 +117,11 @@ func (sf *StorageBackendFactory) createOnchainBackend(u *url.URL) (interfaces.St
 // createGitHubBackend creates a read-only GitHub storage backend.
 // URI format: github://owner/repo
 // The backend uses Git's blob objects directly for content addressing.
-func (sf *StorageBackendFactory) createGitHubBackend(u *url.URL) (interfaces.StorageBackend, error) {
-	sf.log.Debug("Creating GitHub backend", slog.String("uri", u.String()))
+func (sf *StorageBackendFactory) createGitHubBackend(loc interfaces.StorageBackendLocation) (interfaces.StorageBackend, error) {
+	sf.log.Debug("Creating GitHub backend", slog.String("uri", loc.String()))
 
 	// Parse owner and repo from host
-	parts := strings.Split(u.Host, "/")
+	parts := strings.Split(loc.Host, "/")
 	if len(parts) < 2 {
 		return nil, fmt.Errorf("invalid GitHub URI format, expected github://owner/repo")
 	}
@@ -149,22 +136,22 @@ func (sf *StorageBackendFactory) createGitHubBackend(u *url.URL) (interfaces.Sto
 // createIPFSBackend creates an IPFS storage backend.
 // URI format: ipfs://host:port/?gateway=true&timeout=30s
 // The backend can connect to either an IPFS node or a gateway.
-func (sf *StorageBackendFactory) createIPFSBackend(u *url.URL) (interfaces.StorageBackend, error) {
-	sf.log.Debug("Creating IPFS backend", slog.String("uri", u.String()))
+func (sf *StorageBackendFactory) createIPFSBackend(loc interfaces.StorageBackendLocation) (interfaces.StorageBackend, error) {
+	sf.log.Debug("Creating IPFS backend", slog.String("uri", loc.String()))
 
 	// Parse host and port
-	host := u.Hostname()
-	port := u.Port()
-	if port == "" {
-		port = "5001" // Default IPFS API port
+	hostParts := strings.Split(loc.Host, ":")
+	host := hostParts[0]
+	port := "5001" // Default IPFS API port
+	if len(hostParts) > 1 {
+		port = hostParts[1]
 	}
 
 	// Check if this is a gateway
-	query := u.Query()
-	useGateway := query.Get("gateway") == "true"
+	useGateway := loc.GetParamBool("gateway")
 
 	// Parse timeout
-	timeout := query.Get("timeout")
+	timeout := loc.GetParam("timeout")
 	if timeout == "" {
 		timeout = "30s" // Default timeout
 	}
@@ -176,36 +163,38 @@ func (sf *StorageBackendFactory) createIPFSBackend(u *url.URL) (interfaces.Stora
 // createS3Backend creates an S3 or S3-compatible storage backend.
 // URI format: s3://[ACCESS_KEY:SECRET_KEY@]bucket-name/path/?region=us-west-2&endpoint=custom.s3.com
 // The backend supports both public buckets (read-only) and authenticated access.
-func (sf *StorageBackendFactory) createS3Backend(u *url.URL) (interfaces.StorageBackend, error) {
-	sf.log.Debug("Creating S3 backend", slog.String("uri", u.String()))
+func (sf *StorageBackendFactory) createS3Backend(loc interfaces.StorageBackendLocation) (interfaces.StorageBackend, error) {
+	sf.log.Debug("Creating S3 backend", slog.String("uri", loc.String()))
 
 	// Get bucket name
-	bucketName := u.Host
+	bucketName := loc.Host
 
 	// Parse path - remove leading slash
-	path := strings.TrimPrefix(u.Path, "/")
+	path := strings.TrimPrefix(loc.Path, "/")
 
 	// Parse region and endpoint
-	query := u.Query()
-	region := query.Get("region")
+	region := loc.GetParam("region")
 	if region == "" {
 		region = "us-east-1" // Default region
 	}
 
-	endpoint := query.Get("endpoint")
+	endpoint := loc.GetParam("endpoint")
 
 	// Parse credentials
 	var accessKey, secretKey string
-	credentials := query.Get("credentials")
+	credentials := loc.GetParam("credentials")
 	if credentials != "" {
 		// Use credentials from profile/environment
 		sf.log.Debug("Using credentials profile", slog.String("profile", credentials))
 		// Note: In a real implementation, you would look up these credentials
 		// from a secure store or environment based on the profile name
-	} else if u.User != nil {
+	} else if loc.Auth != "" {
 		// Extract credentials from URI (less secure)
-		accessKey = u.User.Username()
-		secretKey, _ = u.User.Password()
+		authParts := strings.SplitN(loc.Auth, ":", 2)
+		accessKey = authParts[0]
+		if len(authParts) > 1 {
+			secretKey = authParts[1]
+		}
 		sf.log.Debug("Using embedded credentials for write access")
 	} else {
 		sf.log.Debug("No credentials provided, S3 bucket assumed to be public, write operations may fail")
@@ -218,23 +207,23 @@ func (sf *StorageBackendFactory) createS3Backend(u *url.URL) (interfaces.Storage
 // createFileBackend creates a file system storage backend.
 // URI format: file:///absolute/path/ or file://./relative/path/
 // The backend stores content in a directory structure organized by content type.
-func (sf *StorageBackendFactory) createFileBackend(u *url.URL) (interfaces.StorageBackend, error) {
-	sf.log.Debug("Creating file backend", slog.String("uri", u.String()))
+func (sf *StorageBackendFactory) createFileBackend(loc interfaces.StorageBackendLocation) (interfaces.StorageBackend, error) {
+	sf.log.Debug("Creating file backend", slog.String("uri", loc.String()))
 
 	// Get the path, handling relative vs absolute paths
-	path := u.Path
-	if u.Host != "" {
+	path := loc.Path
+	if loc.Host != "" {
 		// Handle Windows-style paths like file://C:/path
-		if strings.HasPrefix(u.Host, "C:") || strings.HasPrefix(u.Host, "D:") {
-			path = u.Host + path
+		if strings.HasPrefix(loc.Host, "C:") || strings.HasPrefix(loc.Host, "D:") {
+			path = loc.Host + path
 		} else {
-			path = u.Host + "/" + strings.TrimPrefix(path, "/")
+			path = loc.Host + "/" + strings.TrimPrefix(path, "/")
 		}
 	}
 
 	// Make sure path is not empty
 	if path == "" {
-		return nil, fmt.Errorf("empty path in file URI: %s", u.String())
+		return nil, fmt.Errorf("empty path in file URI: %s", loc.String())
 	}
 
 	// Create the backend
@@ -245,20 +234,20 @@ func (sf *StorageBackendFactory) createFileBackend(u *url.URL) (interfaces.Stora
 // URI format: vault://vault.example.com:8200/secret/data
 // The client certificate must be signed by the application CA for TLS authentication.
 func (sf *StorageBackendFactory) createVaultBackend(
-	u *url.URL,
+	loc interfaces.StorageBackendLocation,
 	tlsCert tls.Certificate,
 ) (interfaces.StorageBackend, error) {
-	sf.log.Debug("Creating Vault backend", slog.String("uri", u.String()))
+	sf.log.Debug("Creating Vault backend", slog.String("uri", loc.String()))
 
 	// Parse server address
-	address := u.Host
+	address := loc.Host
 	if !strings.HasPrefix(address, "http") {
 		// Default to HTTPS
 		address = "https://" + address
 	}
 
 	// Parse path parts (mount path and data path)
-	path := strings.TrimPrefix(u.Path, "/")
+	path := strings.TrimPrefix(loc.Path, "/")
 	pathParts := strings.SplitN(path, "/", 2)
 	if len(pathParts) < 2 {
 		return nil, fmt.Errorf("invalid Vault URI format, expected vault://host:port/mount/path")

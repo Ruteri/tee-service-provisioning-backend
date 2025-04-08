@@ -273,7 +273,7 @@ func (h *AdminHandler) handleInitGenerate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Generate master key
+	// Generate cryptographically secure master key
 	masterKey := make([]byte, 32)
 	if _, err := rand.Read(masterKey); err != nil {
 		h.log.Error("Failed to generate master key", "err", err, "adminID", adminID)
@@ -296,7 +296,7 @@ func (h *AdminHandler) handleInitGenerate(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	// Assign and encrypt shares for each admin
+	// Get admin IDs for share assignment
 	adminIDs := make([]string, 0, len(h.adminPubKeys))
 	for id := range h.adminPubKeys {
 		adminIDs = append(adminIDs, id)
@@ -305,7 +305,7 @@ func (h *AdminHandler) handleInitGenerate(w http.ResponseWriter, r *http.Request
 	// Create secure shares (encrypt each share for its designated admin)
 	for i, share := range shares {
 		if i >= len(adminIDs) {
-			break // Shouldn't happen with our earlier check
+			break
 		}
 
 		targetAdminID := adminIDs[i]
@@ -333,7 +333,6 @@ func (h *AdminHandler) handleInitGenerate(w http.ResponseWriter, r *http.Request
 	h.shamirKMS = shamirKMS
 	h.threshold = params.Threshold
 	h.totalShares = params.TotalShares
-	h.state = StateGeneratingShares // Remain in this state until all shares are retrieved
 	h.mu.Unlock()
 
 	// Return metadata about the shares, not the actual encrypted shares
@@ -399,7 +398,7 @@ func (h *AdminHandler) handleGetShare(w http.ResponseWriter, r *http.Request) {
 	// Mark the share as retrieved
 	secureShare.Retrieved = true
 
-	// Check if all shares have been retrieved, and if so, transition to complete state
+	// Check if all shares have been retrieved
 	allRetrieved := true
 	for _, share := range h.adminShares {
 		if !share.Retrieved {
@@ -410,10 +409,7 @@ func (h *AdminHandler) handleGetShare(w http.ResponseWriter, r *http.Request) {
 
 	if allRetrieved {
 		h.state = StateComplete
-
-		// Signal completion
 		close(h.completeChan)
-
 		h.log.Info("All shares have been retrieved, KMS bootstrap complete")
 	}
 
@@ -449,8 +445,9 @@ func (h *AdminHandler) handleInitRecover(w http.ResponseWriter, r *http.Request)
 	}
 
 	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	if h.state != StateInitial {
-		h.mu.Unlock()
 		http.Error(w, "Bootstrap already in progress or complete", http.StatusBadRequest)
 		return
 	}
@@ -461,13 +458,11 @@ func (h *AdminHandler) handleInitRecover(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
-		h.mu.Unlock()
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	if params.Threshold < 2 {
-		h.mu.Unlock()
 		http.Error(w, "Threshold must be at least 2", http.StatusBadRequest)
 		return
 	}
@@ -484,9 +479,8 @@ func (h *AdminHandler) handleInitRecover(w http.ResponseWriter, r *http.Request)
 
 	h.shamirKMS = shamirKMS
 	h.threshold = params.Threshold
-	h.totalShares = len(h.adminPubKeys) // Maximum possible
+	h.totalShares = len(h.adminPubKeys)
 	h.state = StateRecovering
-	h.mu.Unlock()
 
 	resp := map[string]interface{}{
 		"message":      "Recovery mode initiated",
@@ -521,8 +515,9 @@ func (h *AdminHandler) handleSubmitShare(w http.ResponseWriter, r *http.Request)
 	}
 
 	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	if h.state != StateRecovering {
-		h.mu.Unlock()
 		http.Error(w, "KMS not in recovery mode", http.StatusBadRequest)
 		return
 	}
@@ -535,7 +530,6 @@ func (h *AdminHandler) handleSubmitShare(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&submission); err != nil {
-		h.mu.Unlock()
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -543,14 +537,12 @@ func (h *AdminHandler) handleSubmitShare(w http.ResponseWriter, r *http.Request)
 	// Decode share and signature
 	share, err := base64.StdEncoding.DecodeString(submission.Share)
 	if err != nil {
-		h.mu.Unlock()
 		http.Error(w, "Invalid share encoding", http.StatusBadRequest)
 		return
 	}
 
 	signature, err := base64.StdEncoding.DecodeString(submission.Signature)
 	if err != nil {
-		h.mu.Unlock()
 		http.Error(w, "Invalid signature encoding", http.StatusBadRequest)
 		return
 	}
@@ -561,7 +553,6 @@ func (h *AdminHandler) handleSubmitShare(w http.ResponseWriter, r *http.Request)
 	// Submit the share
 	err = h.shamirKMS.SubmitShare(submission.ShareIndex, share, signature, adminPubKeyPEM)
 	if err != nil {
-		h.mu.Unlock()
 		h.log.Error("Share submission failed", "err", err, "adminID", adminID)
 		http.Error(w, "Share submission failed: "+err.Error(), http.StatusBadRequest)
 		return
@@ -570,9 +561,6 @@ func (h *AdminHandler) handleSubmitShare(w http.ResponseWriter, r *http.Request)
 	// Check if KMS is now unlocked
 	if h.shamirKMS.IsUnlocked() {
 		h.state = StateComplete
-		h.mu.Unlock()
-
-		// Signal completion
 		close(h.completeChan)
 
 		w.Header().Set("Content-Type", "application/json")
@@ -583,8 +571,6 @@ func (h *AdminHandler) handleSubmitShare(w http.ResponseWriter, r *http.Request)
 		h.log.Info("KMS successfully unlocked - recovery complete", "adminID", adminID)
 		return
 	}
-
-	h.mu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -652,8 +638,7 @@ func (h *AdminHandler) verifyAdmin(r *http.Request) (string, bool) {
 		return adminID, false
 	}
 
-	// Prepare the data to verify
-	// 1. Read the request body without consuming it
+	// Read the request body without consuming it
 	var bodyBytes []byte
 	if r.Body != nil {
 		bodyBytes, err = io.ReadAll(r.Body)
@@ -666,13 +651,13 @@ func (h *AdminHandler) verifyAdmin(r *http.Request) (string, bool) {
 		r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 	}
 
-	// 2. Create the message to verify (path + body)
+	// Create the message to verify (path + body)
 	message := r.URL.Path
 	if len(bodyBytes) > 0 {
 		message += string(bodyBytes)
 	}
 
-	// 3. Compute the hash of the message
+	// Compute the hash of the message
 	hash := sha256.Sum256([]byte(message))
 
 	// Verify the signature

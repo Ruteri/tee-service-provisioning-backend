@@ -4,9 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/hex"
 	"encoding/json"
-	"encoding/pem"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/ruteri/tee-service-provisioning-backend/instanceutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 	"github.com/ruteri/tee-service-provisioning-backend/kms"
@@ -33,16 +32,12 @@ func TestIntegration_RequestRoutingWithRealKMS(t *testing.T) {
 	// Create logger that discards output
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	// Create contract addresses for source and target apps
-	var sourceAppAddr, targetAppAddr interfaces.ContractAddress
-	sourceAppHex := "1111111111111111111111111111111111111111"
-	targetAppHex := "2222222222222222222222222222222222222222"
+	// Create contract addresses for source and target apps using proper constructor
+	sourceAppAddr, err := interfaces.NewContractAddressFromHex("1111111111111111111111111111111111111111")
+	require.NoError(t, err, "Failed to create source contract address")
 
-	sourceAppBytes, _ := hex.DecodeString(sourceAppHex)
-	targetAppBytes, _ := hex.DecodeString(targetAppHex)
-
-	copy(sourceAppAddr[:], sourceAppBytes[:20])
-	copy(targetAppAddr[:], targetAppBytes[:20])
+	targetAppAddr, err := interfaces.NewContractAddressFromHex("2222222222222222222222222222222222222222")
+	require.NoError(t, err, "Failed to create target contract address")
 
 	// Initialize SimpleKMS with a test master key
 	masterKey := make([]byte, 32)
@@ -63,7 +58,11 @@ func TestIntegration_RequestRoutingWithRealKMS(t *testing.T) {
 	mockRegistry.RegisterPKI(&testSourcePKI)
 
 	mockRegistryFactory := new(registry.MockRegistryFactory)
+
+	// Register domain for testing - using raw string as in original test
 	_, err = mockRegistry.RegisterInstanceDomainName("127.0.0.1:11234")
+	require.NoError(t, err)
+
 	mockRegistryFactory.On("RegistryFor", sourceAppAddr).Return(mockRegistry, nil)
 	mockRegistryFactory.On("RegistryFor", targetAppAddr).Return(mockRegistry, nil)
 
@@ -87,6 +86,7 @@ func TestIntegration_RequestRoutingWithRealKMS(t *testing.T) {
 		targetAppAddr,
 		logger,
 	)
+	require.NoError(t, err, "Failed to create ingress certificate manager")
 
 	// Create router config
 	ingressConfig := RouterConfig{
@@ -122,6 +122,7 @@ func TestIntegration_RequestRoutingWithRealKMS(t *testing.T) {
 		sourceAppAddr,
 		logger,
 	)
+	require.NoError(t, err, "Failed to create egress certificate manager")
 
 	// Create router config
 	egressConfig := RouterConfig{
@@ -154,9 +155,9 @@ func TestIntegration_RequestRoutingWithRealKMS(t *testing.T) {
 	req, err := http.NewRequest("GET", egressServer.URL+"/api/test", nil)
 	assert.NoError(t, err)
 
-	// Set routing headers
-	req.Header.Set("X-Source-App", sourceAppHex)
-	req.Header.Set("X-Target-App", targetAppHex)
+	// Set routing headers using original hex strings as in the original test
+	req.Header.Set("X-Source-App", sourceAppAddr.String())
+	req.Header.Set("X-Target-App", targetAppAddr.String())
 	req.Header.Set("X-Request-Type", "any")
 
 	// Send the request
@@ -188,11 +189,10 @@ func TestIntegration_BroadcastRequestWithRealKMS(t *testing.T) {
 	// Create logger that discards output
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	// Create contract addresses
-	var appAddr interfaces.ContractAddress
+	// Create contract address using proper constructor
 	appHex := "1111111111111111111111111111111111111111"
-	appBytes, _ := hex.DecodeString(appHex)
-	copy(appAddr[:], appBytes[:20])
+	appAddr, err := interfaces.NewContractAddressFromHex(appHex)
+	require.NoError(t, err, "Failed to create app contract address")
 
 	// Initialize SimpleKMS
 	masterKey := make([]byte, 32)
@@ -224,6 +224,7 @@ func TestIntegration_BroadcastRequestWithRealKMS(t *testing.T) {
 	instance2Server := httptest.NewServer(instance2Handler)
 	defer instance2Server.Close()
 
+	// Register domain names - keeping the original string format for the test
 	_, err = mockRegistry.RegisterInstanceDomainName(appHex + ".app")
 	require.NoError(t, err, "Failed to register app domain")
 
@@ -233,15 +234,16 @@ func TestIntegration_BroadcastRequestWithRealKMS(t *testing.T) {
 	_, err = mockRegistry.RegisterInstanceDomainName(appHex + ".instance2")
 	require.NoError(t, err, "Failed to register instance2 domain")
 
-	caPEMBlock, _ := pem.Decode(testPKI.Ca)
-	require.NotNil(t, caPEMBlock, "Failed to decode CA PEM")
+	// Parse CA certificate using proper types from interfaces package
+	caCert, err := cryptoutils.NewCACert(testPKI.Ca)
+	require.NoError(t, err, "Failed to create CA certificate")
 
-	caCert, err := x509.ParseCertificate(caPEMBlock.Bytes)
-	require.NoError(t, err, "Failed to parse CA certificate")
+	x509Cert, err := caCert.GetX509Cert()
+	require.NoError(t, err, "Failed to get X509 certificate")
 
 	// Create a test certificate manager
 	certManager := &testCertificateManager{
-		caCert: caCert,
+		caCert: x509Cert,
 	}
 
 	mockRegistryFactory := new(registry.MockRegistryFactory)
@@ -277,6 +279,8 @@ func TestIntegration_BroadcastRequestWithRealKMS(t *testing.T) {
 	// Create a request with broadcast type
 	req, err := http.NewRequest("GET", server.URL+"/api/test", nil)
 	assert.NoError(t, err)
+
+	// Set headers using hex string format as in original test
 	req.Header.Set("X-Source-App", appHex)
 	req.Header.Set("X-Target-App", appHex)
 	req.Header.Set("X-Request-Type", "all")
