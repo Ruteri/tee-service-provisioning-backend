@@ -59,6 +59,10 @@ var flags []cli.Flag = []cli.Flag{
 		Value: "",
 		Usage: "hex-encoded 32-byte seed for SimpleKMS (required if kms-type is 'simple')",
 	},
+	&cli.StringFlag{
+		Name:  "remote-attestation-provider",
+		Usage: "remote attestation provider (dummy dcap) address to use for attestations in KMS",
+	},
 	&cli.BoolFlag{
 		Name:  "log-json",
 		Value: false,
@@ -102,6 +106,7 @@ func main() {
 			listenAddr := cCtx.String("listen-addr")
 			metricsAddr := cCtx.String("metrics-addr")
 			kmsType := cCtx.String("kms-type")
+			kmsRemoteAttestationProvider := cCtx.String("remote-attestation-provider")
 			adminKeysFile := cCtx.String("admin-keys-file")
 			bootstrapTimeout := cCtx.Int("bootstrap-timeout")
 			simpleKMSSeed := cCtx.String("simple-kms-seed")
@@ -171,11 +176,15 @@ func main() {
 				}
 
 				// Create SimpleKMS
-				kmsImpl, err = kms.NewSimpleKMS(seed)
+				simpleKms, err := kms.NewSimpleKMS(seed)
 				if err != nil {
 					logger.Error("Failed to create SimpleKMS", "err", err)
 					return err
 				}
+				if kmsRemoteAttestationProvider != "" {
+					simpleKms = simpleKms.WithAttestationProvider(&kms.RemoteAttestationProvider{Address: kmsRemoteAttestationProvider})
+				}
+				kmsImpl = simpleKms
 
 				logger.Info("SimpleKMS initialized successfully")
 
@@ -245,6 +254,10 @@ func main() {
 				if err != nil {
 					logger.Error("KMS bootstrap failed", "err", err)
 					return err
+				}
+
+				if kmsRemoteAttestationProvider != "" {
+					shamirKMS.SetAttestationProvider(&kms.RemoteAttestationProvider{Address: kmsRemoteAttestationProvider})
 				}
 
 				// Now that KMS is bootstrapped, create the registry handler

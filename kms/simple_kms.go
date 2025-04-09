@@ -23,6 +23,14 @@ import (
 type SimpleKMS struct {
 	masterKey []byte
 	mu        sync.RWMutex
+
+	attestationProvider AttestationProvider
+}
+
+type DumyAttestationProvider struct{}
+
+func (DumyAttestationProvider) Attest(userData [64]byte) ([]byte, error) {
+	return []byte(fmt.Sprintf("Attestation for CA %x", userData)), nil
 }
 
 // NewSimpleKMS creates a new instance of SimpleKMS with the provided master key.
@@ -33,7 +41,16 @@ func NewSimpleKMS(masterKey []byte) (*SimpleKMS, error) {
 		return nil, errors.New("master key must be at least 32 bytes")
 	}
 
-	return &SimpleKMS{masterKey: masterKey}, nil
+	return &SimpleKMS{masterKey: masterKey, attestationProvider: DumyAttestationProvider{}}, nil
+}
+
+func (k *SimpleKMS) WithAttestationProvider(provider AttestationProvider) *SimpleKMS {
+	newkms := &SimpleKMS{
+		masterKey:           make([]byte, len(k.masterKey)),
+		attestationProvider: provider,
+	}
+	copy(newkms.masterKey, k.masterKey)
+	return newkms
 }
 
 // GetPKI returns the CA certificate, app public key and attestation for a contract.
@@ -72,8 +89,15 @@ func (k *SimpleKMS) GetPKI(contractAddr interfaces.ContractAddress) (interfaces.
 		Bytes: pubKeyBytes,
 	})
 
-	// Simple attestation
-	attestation := []byte(fmt.Sprintf("Attestation for CA %x", contractAddr))
+	var userData [64]byte
+	copy(userData[:20], contractAddr[:])
+	certsHash := sha256.Sum256(append(certPEM, pubKeyPEM...))
+	copy(userData[20:], certsHash[:])
+
+	attestation, err := k.attestationProvider.Attest(userData)
+	if err != nil {
+		return interfaces.AppPKI{}, fmt.Errorf("failed to attest: %w", err)
+	}
 
 	return interfaces.AppPKI{certPEM, pubKeyPEM, attestation}, nil
 }

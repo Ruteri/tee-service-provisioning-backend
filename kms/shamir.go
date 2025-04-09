@@ -32,6 +32,8 @@ type ShamirKMS struct {
 
 	// For admin verification approach
 	adminPubKeys map[string]bool // Map of allowed admin public key fingerprints
+
+	attestationProvider AttestationProvider
 }
 
 // NewShamirKMS creates a new ShamirKMS instance for initial setup.
@@ -96,6 +98,11 @@ func NewShamirKMSRecovery(threshold int) *ShamirKMS {
 		receivedShares: make(map[int][]byte),
 		adminPubKeys:   make(map[string]bool),
 	}
+}
+
+func (k *ShamirKMS) SetAttestationProvider(provider AttestationProvider) *ShamirKMS {
+	k.attestationProvider = provider
+	return k
 }
 
 // RegisterAdmin registers an administrator's public key with the KMS.

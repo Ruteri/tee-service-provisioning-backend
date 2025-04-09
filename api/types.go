@@ -56,8 +56,14 @@ type MetadataResponse struct {
 	// CACert is the certificate authority that is expected for the application
 	CACert interfaces.CACert `json:"ca_cert"`
 
+	// AppPubkey is the applications public key used for encrypting secrets
+	AppPubkey interfaces.AppPubkey `json:"app_pubkey"`
+
 	// DomainNames is the domain names that should be resolved to get app instances
 	DomainNames []interfaces.AppDomainName `json:"domain_names"`
+
+	// Attestation is the quote for AppAddress||sha256(CACert||AppPubkey) (52 bytes)
+	Attestation interfaces.Attestation `json:"attestaion"`
 }
 
 // AttestationToIdentity converts attestation data to an identity hash.
