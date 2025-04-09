@@ -32,6 +32,9 @@ struct AppPKI {
 
 // Interface needed by the provisioning backend
 interface IRegistry {
+	// PKI for the application (CA, secrets encryption key)
+    function getPKI() external view returns (AppPKI memory);
+
     // Identity computation from attestation reports
     function DCAPIdentity(DCAPReport memory report, DCAPEvent[] memory eventLog) external view returns (bytes32);
     function MAAIdentity(MAAReport memory report) external view returns (bytes32);
@@ -39,14 +42,14 @@ interface IRegistry {
     // Configuration mapping for identity
     function getConfigForIdentity(bytes32 identity) external view returns (bytes32);
 
+	// Public instances — API and p2p bootstrap
+	function allInstanceDomainNames() external view returns (string[] memory);
+
     // Storage backend management
     function allStorageBackends() external view returns (string[] memory);
 
     // Optional: If artifacts are stored on-chain
     function getArtifact(bytes32 artifactHash) external view returns (bytes memory);
-
-    // Optional: PKI information
-    function getPKI() external view returns (AppPKI memory);
 }
 
 /**

@@ -68,6 +68,10 @@ var flags []cli.Flag = []cli.Flag{
 		Name:  "debug-local-provider",
 		Usage: "If provided the provisioner will use a dummy provider instead of a remote one",
 	},
+	&cli.BoolFlag{
+		Name:  "debug-local-kms-remote-attestaion-provider",
+		Usage: "Address to use for remote attestations (dummy dcap) with local kms",
+	},
 	&cli.StringFlag{
 		Name:  "debug-set-attestation-type-header",
 		Usage: "If provided the provisioner will set the attestation type header",
@@ -170,6 +174,9 @@ func NewProvisioner(cCtx *cli.Context) (*Provisioner, error) {
 		if err != nil {
 			return nil, fmt.Errorf("could not create a local kms: %w", err)
 		}
+		if cCtx.String("debug-local-kms-remote-attestaion-provider") != "" {
+		localKMS = localKMS.WithAttestationProvider(&kms.RemoteAttestationProvider{Address: cCtx.String("debug-local-kms-remote-attestaion-provider")})
+	}
 		registrationProvider = &instanceutils.LocalKMSRegistrationProvider{KMS: localKMS}
 	}
 

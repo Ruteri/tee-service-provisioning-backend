@@ -196,7 +196,7 @@ func (h *Handler) HandleAppMetadata(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pki, err := registry.GetPKI()
+	pki, err := h.kms.GetPKI(contractAddr)
 	if err != nil {
 		h.log.Error("Failed to get PKI", "err", err, "contractAddress", contractAddr.String())
 		http.Error(w, fmt.Errorf("Failed to get PKI: %w", err).Error(), http.StatusInternalServerError)
@@ -223,7 +223,9 @@ func (h *Handler) HandleAppMetadata(w http.ResponseWriter, r *http.Request) {
 	// Prepare response
 	response := api.MetadataResponse{
 		CACert:      pki.Ca,
+		AppPubkey:   pki.Pubkey,
 		DomainNames: domainNames,
+		Attestation: pki.Attestation,
 	}
 
 	// Return JSON response
@@ -269,7 +271,7 @@ func (h *Handler) handleRegister(ctx context.Context, attestationType string, me
 	configTemplateHash, err := registry.IdentityConfigMap(identity)
 	if err != nil {
 		h.log.Error("Failed to get config template hash", "err", err, slog.String("identity", string(identity[:])))
-		return nil, nil, nil, fmt.Errorf("config lookup error: %w", err)
+		return nil, nil, nil, fmt.Errorf("config lookup error for %x: %w", identity, err)
 	}
 
 	if configTemplateHash == [32]byte{} {

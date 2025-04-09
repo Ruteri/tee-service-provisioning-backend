@@ -59,6 +59,10 @@ var flags []cli.Flag = []cli.Flag{
 		Value: "",
 		Usage: "hex-encoded 32-byte seed for SimpleKMS (required if kms-type is 'simple')",
 	},
+	&cli.StringFlag{
+		Name:  "simple-kms-remote-attestation-provider",
+		Usage: "hex-encoded 32-byte seed for SimpleKMS (required if kms-type is 'simple')",
+	},
 	&cli.BoolFlag{
 		Name:  "log-json",
 		Value: false,
@@ -102,6 +106,7 @@ func main() {
 			listenAddr := cCtx.String("listen-addr")
 			metricsAddr := cCtx.String("metrics-addr")
 			kmsType := cCtx.String("kms-type")
+			kmsRemoteAttestationProvider := cCtx.String("simple-kms-remote-attestation-provider")
 			adminKeysFile := cCtx.String("admin-keys-file")
 			bootstrapTimeout := cCtx.Int("bootstrap-timeout")
 			simpleKMSSeed := cCtx.String("simple-kms-seed")
@@ -171,11 +176,15 @@ func main() {
 				}
 
 				// Create SimpleKMS
-				kmsImpl, err = kms.NewSimpleKMS(seed)
+				simpleKms, err := kms.NewSimpleKMS(seed)
 				if err != nil {
 					logger.Error("Failed to create SimpleKMS", "err", err)
 					return err
 				}
+				if kmsRemoteAttestationProvider != "" {
+					simpleKms = simpleKms.WithAttestationProvider(&kms.RemoteAttestationProvider{Address: kmsRemoteAttestationProvider})
+				}
+kmsImpl = simpleKms
 
 				logger.Info("SimpleKMS initialized successfully")
 
