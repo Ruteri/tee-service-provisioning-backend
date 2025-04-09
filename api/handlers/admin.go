@@ -241,9 +241,7 @@ func (h *AdminHandler) handleInitGenerate(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Bootstrap already in progress or complete", http.StatusBadRequest)
 		return
 	}
-
-	h.state = StateGeneratingShares
-	h.mu.Unlock()
+	defer h.mu.Unlock()
 
 	// Parse parameters
 	var params struct {
@@ -302,6 +300,8 @@ func (h *AdminHandler) handleInitGenerate(w http.ResponseWriter, r *http.Request
 		adminIDs = append(adminIDs, id)
 	}
 
+	adminShares  := make(map[string]*SecureShare)
+
 	// Create secure shares (encrypt each share for its designated admin)
 	for i, share := range shares {
 		if i >= len(adminIDs) {
@@ -320,7 +320,7 @@ func (h *AdminHandler) handleInitGenerate(w http.ResponseWriter, r *http.Request
 		}
 
 		// Store the encrypted share
-		h.adminShares[targetAdminID] = &SecureShare{
+		adminShares[targetAdminID] = &SecureShare{
 			AdminID:        targetAdminID,
 			ShareIndex:     i,
 			EncryptedShare: encryptedShare,
@@ -329,11 +329,11 @@ func (h *AdminHandler) handleInitGenerate(w http.ResponseWriter, r *http.Request
 	}
 
 	// Store the KMS and parameters
-	h.mu.Lock()
+	h.state = StateGeneratingShares
 	h.shamirKMS = shamirKMS
 	h.threshold = params.Threshold
 	h.totalShares = params.TotalShares
-	h.mu.Unlock()
+	h.adminShares = adminShares
 
 	// Return metadata about the shares, not the actual encrypted shares
 	shareAssignments := make([]map[string]interface{}, 0, len(h.adminShares))
@@ -414,17 +414,20 @@ func (h *AdminHandler) handleGetShare(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return the encrypted share to the admin
-	resp := map[string]interface{}{
-		"share_index":     secureShare.ShareIndex,
-		"encrypted_share": base64.StdEncoding.EncodeToString(secureShare.EncryptedShare),
-		"message":         "This share is encrypted with your public key. Decrypt it and keep it secure.",
-	}
-
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	json.NewEncoder(w).Encode(AdminGetShareResponse{
+		ShareIndex: secureShare.ShareIndex,
+		EncryptedShare: base64.StdEncoding.EncodeToString(secureShare.EncryptedShare),
+	})
 
 	h.log.Info("Admin retrieved their share", "adminID", adminID, "shareIndex", secureShare.ShareIndex)
 }
+
+
+	type AdminGetShareResponse struct {
+		ShareIndex int `json:"share_index"`
+		EncryptedShare string `json:"encrypted_share"` // base64 encoded
+	}
 
 // handleInitRecover initiates the recovery process.
 //
@@ -670,6 +673,15 @@ func (h *AdminHandler) verifyAdmin(r *http.Request) (string, bool) {
 	return adminID, true
 }
 
+	type ShamirAdminsConfig struct {
+		Admins []ShamirAdminMetadata `json:"admins"`
+	}
+
+		type ShamirAdminMetadata struct {
+			ID     string `json:"id"`
+			PubKey string `json:"pubkey"`
+		}
+
 // LoadAdminKeys loads admin public keys from a JSON file.
 //
 // The JSON file should contain an "admins" array with entries that include:
@@ -683,12 +695,7 @@ func (h *AdminHandler) verifyAdmin(r *http.Request) (string, bool) {
 //   - Map of admin IDs to their public keys in PEM format
 //   - Error if loading fails
 func LoadAdminKeys(r io.Reader) (map[string][]byte, error) {
-	var data struct {
-		Admins []struct {
-			ID     string `json:"id"`
-			PubKey string `json:"pubkey"`
-		} `json:"admins"`
-	}
+	var data ShamirAdminsConfig
 
 	if err := json.NewDecoder(r).Decode(&data); err != nil {
 		return nil, fmt.Errorf("failed to decode admin keys JSON: %w", err)

@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/ruteri/tee-service-provisioning-backend/api/handlers"
 )
 
 // AdminClient provides methods for interacting with the admin API.
@@ -58,7 +60,7 @@ func NewAdminClient(baseURL, adminID string, privateKey *ecdsa.PrivateKey, timeo
 func (c *AdminClient) GetStatus() (string, error) {
 	url := fmt.Sprintf("%s/status", c.baseURL)
 
-	req, err := CreateSignedAdminRequest("GET", url, nil, c.adminID, c.privateKey)
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return "", err
 	}
@@ -238,6 +240,40 @@ func (c *AdminClient) SubmitShare(shareIndex int, shareBase64 string, signature 
 	}
 
 	return nil
+}
+
+// FetchShare fetches a share during the generation process.
+//
+// Returns:
+//   - share index
+//   - encrypted share
+//   - Error if the request fails
+func (c *AdminClient) FetchShare() (handlers.AdminGetShareResponse, error) {
+	url := fmt.Sprintf("%s/share", c.baseURL)
+
+	req, err := CreateSignedAdminRequest("GET", url, nil, c.adminID, c.privateKey)
+	if err != nil {
+		return handlers.AdminGetShareResponse{}, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return handlers.AdminGetShareResponse{}, fmt.Errorf("submit share request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return handlers.AdminGetShareResponse{}, fmt.Errorf("submit share failed with code %d: %s", resp.StatusCode, string(body))
+	}
+
+	var parsedResp handlers.AdminGetShareResponse
+	err = json.NewDecoder(resp.Body).Decode(&parsedResp)
+	if err != nil {
+		return handlers.AdminGetShareResponse{}, err
+	}
+
+	return parsedResp, err
 }
 
 // WaitForCompletion polls the KMS status until it reaches the "complete" state
