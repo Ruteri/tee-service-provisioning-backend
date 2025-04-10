@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ruteri/tee-service-provisioning-backend/api"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
 
@@ -89,12 +90,8 @@ func (k *SimpleKMS) GetPKI(contractAddr interfaces.ContractAddress) (interfaces.
 		Bytes: pubKeyBytes,
 	})
 
-	var userData [64]byte
-	copy(userData[:20], contractAddr[:])
-	certsHash := sha256.Sum256(append(certPEM, pubKeyPEM...))
-	copy(userData[20:], certsHash[:])
-
-	attestation, err := k.attestationProvider.Attest(userData)
+	reportData := api.ReportData(contractAddr, certPEM, pubKeyPEM)
+	attestation, err := k.attestationProvider.Attest(reportData)
 	if err != nil {
 		return interfaces.AppPKI{}, fmt.Errorf("failed to attest: %w", err)
 	}

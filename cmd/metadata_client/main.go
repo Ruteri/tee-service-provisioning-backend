@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -54,7 +53,7 @@ func main() {
 }
 
 type Provisioner struct {
-	AppContract    interfaces.ContractAddress
+	AppContract      interfaces.ContractAddress
 	MetadataProvider api.MetadataProvider
 }
 
@@ -65,35 +64,34 @@ func NewProvisioner(cCtx *cli.Context) (*Provisioner, error) {
 	}
 
 	registrationProvider := &clients.ProvisioningClient{
-			ServerAddr:                cCtx.String("provisioning-server-addr"),
-			SetAttestationType:        cCtx.String("debug-set-attestation-type-header"),
-			SetAttestationMeasurement: cCtx.String("debug-set-attestation-measurement-header"),
-		}
+		ServerAddr:                cCtx.String("provisioning-server-addr"),
+		SetAttestationType:        cCtx.String("debug-set-attestation-type-header"),
+		SetAttestationMeasurement: cCtx.String("debug-set-attestation-measurement-header"),
+	}
 
 	return &Provisioner{
-		AppContract: appContract,
+		AppContract:      appContract,
 		MetadataProvider: registrationProvider,
 	}, nil
 }
 
 func (p *Provisioner) Do() error {
-		parsedResponse, err := p.MetadataProvider.GetAppMetadata(p.AppContract)
-		if err != nil {
-			return fmt.Errorf("metadata request failed: %w", err)
-		}
-		encodedResp, _ := json.Marshal(parsedResponse)
-		fmt.Println(string(encodedResp))
+	parsedResponse, err := p.MetadataProvider.GetAppMetadata(p.AppContract)
+	if err != nil {
+		return fmt.Errorf("metadata request failed: %w", err)
+	}
+	encodedResp, _ := json.Marshal(parsedResponse)
+	fmt.Println(string(encodedResp))
 
-		err = VerifyDCAPAttestation(parsedResponse)
-		if err != nil {
-			return fmt.Errorf("metadata attestation verification failed: %w", err)
-		}
+	err = VerifyDCAPAttestation(p.AppContract, parsedResponse)
+	if err != nil {
+		return fmt.Errorf("metadata attestation verification failed: %w", err)
+	}
 
-
-		return nil
+	return nil
 }
 
-func VerifyDCAPAttestation(resp *api.MetadataResponse) error {
+func VerifyDCAPAttestation(contractAddr interfaces.ContractAddress, resp *api.MetadataResponse) error {
 	protoQuote, err := tdx_abi.QuoteToProto(resp.Attestation)
 	if err != nil {
 		return fmt.Errorf("could not parse quote: %w", err)
@@ -118,14 +116,9 @@ func VerifyDCAPAttestation(resp *api.MetadataResponse) error {
 		return fmt.Errorf("quote verification failed: %w", err)
 	}
 
-	var expectedUserData [64]byte
-	certHash := sha256.Sum256(resp.CACert)
-	copy(expectedUserData[:], certHash[:])
-	pubkeyHash := sha256.Sum256(resp.AppPubkey)
-	copy(expectedUserData[32:], pubkeyHash[:])
-
-	if !bytes.Equal(v4Quote.TdQuoteBody.ReportData, expectedUserData[:]) {
-		return fmt.Errorf("invalid user data %x, expected %x", v4Quote.Header.UserData, expectedUserData[:])
+	expectedReportData := api.ReportData(contractAddr, resp.CACert, resp.AppPubkey)
+	if !bytes.Equal(v4Quote.TdQuoteBody.ReportData, expectedReportData[:]) {
+		return fmt.Errorf("invalid report data %x, expected %x", v4Quote.TdQuoteBody.ReportData, expectedReportData[:])
 	}
 
 	fmt.Println("attestation validation successful")

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/sha256"
 	"fmt"
 
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
@@ -106,4 +107,12 @@ func AttestationToIdentity(attestationType string, measurements map[int]string, 
 	default:
 		return [32]byte{}, fmt.Errorf("unsupported attestation type: %s", attestationType)
 	}
+}
+
+func ReportData(contractAddr interfaces.ContractAddress, CACert interfaces.CACert, AppPubkey interfaces.AppPubkey) [64]byte {
+	var expectedReportData [64]byte
+	copy(expectedReportData[:20], contractAddr[:])
+	certsHash := sha256.Sum256(append(CACert, AppPubkey...))
+	copy(expectedReportData[20:], certsHash[:])
+	return expectedReportData
 }
