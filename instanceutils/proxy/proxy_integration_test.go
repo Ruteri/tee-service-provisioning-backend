@@ -75,13 +75,13 @@ func TestIntegration_RequestRoutingWithRealKMS(t *testing.T) {
 	defer backendServer.Close()
 
 	appResolver := instanceutils.NewRegistryAppResolver(
-		&instanceutils.LocalKMSRegistrationProvider{KMS: kmsInstance},
 		mockRegistryFactory,
 		0,
 		logger,
 	)
 
 	ingressCertManager, err := NewAppCertificateManager(
+		&instanceutils.LocalKMSRegistrationProvider{KMS: kmsInstance},
 		appResolver,
 		targetAppAddr,
 		logger,
@@ -111,13 +111,13 @@ func TestIntegration_RequestRoutingWithRealKMS(t *testing.T) {
 	defer ingressRouter.Shutdown(context.TODO())
 
 	mockResolver := instanceutils.NewRegistryAppResolver(
-		&instanceutils.LocalKMSRegistrationProvider{KMS: kmsInstance},
 		mockRegistryFactory,
 		time.Hour,
 		logger,
 	)
 
 	egressCertManager, err := NewAppCertificateManager(
+		&instanceutils.LocalKMSRegistrationProvider{KMS: kmsInstance},
 		appResolver,
 		sourceAppAddr,
 		logger,
@@ -250,7 +250,6 @@ func TestIntegration_BroadcastRequestWithRealKMS(t *testing.T) {
 	mockRegistryFactory.On("RegistryFor", appAddr).Return(mockRegistry, nil)
 
 	appResolver := instanceutils.NewRegistryAppResolver(
-		&instanceutils.LocalKMSRegistrationProvider{KMS: kmsInstance},
 		mockRegistryFactory,
 		0,
 		logger,

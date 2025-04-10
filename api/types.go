@@ -72,6 +72,11 @@ type AdminGetShareResponse struct {
 	EncryptedShare string `json:"encrypted_share"` // base64 encoded
 }
 
+type RegistryProvider interface {
+	MetadataProvider
+	RegistrationProvider
+}
+
 // AttestationToIdentity converts attestation data to an identity hash.
 // It uses the appropriate computation method based on attestation type.
 //

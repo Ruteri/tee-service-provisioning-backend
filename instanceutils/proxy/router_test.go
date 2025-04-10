@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ruteri/tee-service-provisioning-backend/api"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/ruteri/tee-service-provisioning-backend/instanceutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
@@ -56,7 +57,7 @@ func (m *MockInstanceResolver) GetAppMetadata(contractAddr interfaces.ContractAd
 func setupTestEnvironment(t *testing.T) (
 	interfaces.ContractAddress,
 	*MockCertificateManager,
-	instanceutils.AppResolver,
+	api.MetadataProvider,
 	interfaces.KMS,
 	*registry.MockRegistryClient,
 	*slog.Logger,
@@ -83,7 +84,6 @@ func setupTestEnvironment(t *testing.T) (
 
 	// Create resolver
 	mockResolver := instanceutils.NewRegistryAppResolver(
-		&instanceutils.LocalKMSRegistrationProvider{KMS: kmsInstance},
 		mockRegistryFactory,
 		time.Hour,
 		logger,

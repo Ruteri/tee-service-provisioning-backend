@@ -22,11 +22,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/ruteri/tee-service-provisioning-backend/instanceutils"
+	"github.com/ruteri/tee-service-provisioning-backend/api"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
-
-type AppResolver = instanceutils.AppResolver
 
 // CertificateManager handles TLS certificate operations for secure communication between TEE instances.
 // It provides methods for certificate verification and validation.
@@ -54,7 +52,7 @@ type RouterConfig struct {
 	CertManager CertificateManager
 
 	// Application resolver
-	Resolver AppResolver
+	Resolver api.MetadataProvider
 
 	// Address for incoming requests from other instances
 	IngressListenAddr string
@@ -224,7 +222,6 @@ func (r *HTTPRouter) handleIngressRequest(w http.ResponseWriter, req *http.Reque
 
 	peerCertCNBytes, err := hex.DecodeString(strings.Split(req.TLS.VerifiedChains[0][0].Subject.CommonName, ".")[0])
 	if err != nil || len(peerCertCNBytes) != 20 {
-		fmt.Println(req.TLS.VerifiedChains[0][0].Subject.CommonName, peerCertCNBytes)
 		r.config.Log.Error("Bad peer cert CN")
 		http.Error(w, "Bad peer cert CN", http.StatusBadRequest)
 		return
@@ -427,7 +424,7 @@ func (r *HTTPRouter) handleEgressRequest(w http.ResponseWriter, req *http.Reques
 	copy(targetAppAddr[:], targetAppAddrBytes[:20])
 
 	// Resolve instances for the target app
-	targetAppCAPEM, targetAppInstances, err := r.config.Resolver.GetAppMetadata(targetAppAddr)
+	metadata, err := r.config.Resolver.GetAppMetadata(targetAppAddr)
 	if err != nil {
 		r.config.Log.Error("Failed to resolve instances for target app",
 			"app", targetApp, "err", err)
@@ -436,14 +433,14 @@ func (r *HTTPRouter) handleEgressRequest(w http.ResponseWriter, req *http.Reques
 	}
 
 	// Check if we have any instances available
-	if len(targetAppInstances) == 0 {
+	if len(metadata.DomainNames) == 0 {
 		r.config.Log.Warn("No instances available for target app", "app", targetApp)
 		http.Error(w, "No instances available for target application", http.StatusServiceUnavailable)
 		return
 	}
 
 	// Get or create transport for the target app
-	transport, err := r.getOrCreateTransport(sourceAppAddr, targetAppAddr, targetAppCAPEM)
+	transport, err := r.getOrCreateTransport(sourceAppAddr, targetAppAddr, metadata.CACert)
 	if err != nil {
 		r.config.Log.Error("Failed to create transport for target app",
 			"app", targetApp, "err", err)
@@ -454,10 +451,16 @@ func (r *HTTPRouter) handleEgressRequest(w http.ResponseWriter, req *http.Reques
 	// Set ourselves as the host for routing on the server
 	req.Host = fmt.Sprintf("%s.app", sourceApp)
 
+	// TODO: resolve the DNS!
+	resolvedInstances := []string{}
+	for _, dn := range metadata.DomainNames {
+		resolvedInstances = append(resolvedInstances, string(dn))
+	}
+
 	// Handle different request types
 	if requestType == "" || requestType == "any" {
 		// Single instance request - pick a random instance for load balancing
-		instanceAddr := r.pickRandomInstance(targetAppInstances)
+		instanceAddr := r.pickRandomInstance(resolvedInstances)
 		targetURL, err := url.Parse(fmt.Sprintf("https://%s", instanceAddr))
 
 		if err != nil {
@@ -476,7 +479,7 @@ func (r *HTTPRouter) handleEgressRequest(w http.ResponseWriter, req *http.Reques
 		return
 	} else if requestType == "all" {
 		// Broadcast request to all instances and collect responses
-		r.handleBroadcastRequest(w, req, targetAppInstances, transport)
+		r.handleBroadcastRequest(w, req, resolvedInstances, transport)
 		return
 	}
 

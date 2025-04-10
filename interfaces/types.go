@@ -101,7 +101,7 @@ type AppDomainName string
 // NewAppDomainName creates a new domain name with validation.
 func NewAppDomainName(domain string) (AppDomainName, error) {
 	// Basic domain name validation (simplified version)
-	domainRegex := regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$`)
+	domainRegex := regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+([a-zA-Z]{2,}|$|:[0-9]{2,6}$)?`)
 	if !domainRegex.MatchString(domain) {
 		return AppDomainName(""), errors.New("invalid domain name format")
 	}

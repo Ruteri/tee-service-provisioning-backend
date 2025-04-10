@@ -54,11 +54,10 @@ func TestRegistryAppResolver_GetAppMetadata(t *testing.T) {
 	mockRegistry.SetTransactOpts()
 
 	// Register test domains using the contract address string representation
-	contractAddrStr := contractAddr.String()
 	domainNames := []string{
-		contractAddrStr,
-		contractAddrStr + ".instance1",
-		contractAddrStr + ".instance2",
+		"instance1.domain",
+		"instance2.someotherdomain",
+		"instance3.yetanother",
 	}
 
 	for _, domain := range domainNames {
@@ -73,58 +72,25 @@ func TestRegistryAppResolver_GetAppMetadata(t *testing.T) {
 
 	// Create app resolver
 	resolver := NewRegistryAppResolver(
-		&LocalKMSRegistrationProvider{KMS: kmsInstance},
 		mockRegistryFactory,
 		time.Minute,
 		logger,
 	)
 
 	// Test GetAppMetadata
-	caCert, instances, err := resolver.GetAppMetadata(contractAddr)
+	resp, err := resolver.GetAppMetadata(contractAddr)
 
 	// Verify results
 	assert.NoError(t, err)
-	assert.NotEmpty(t, caCert)
+	assert.NotEmpty(t, resp.CACert)
 
 	// Validate that this is a PEM-encoded certificate
-	assert.Contains(t, string(caCert), "-----BEGIN CERTIFICATE-----")
-	assert.Contains(t, string(caCert), "-----END CERTIFICATE-----")
+	assert.Contains(t, string(resp.CACert), "-----BEGIN CERTIFICATE-----")
+	assert.Contains(t, string(resp.CACert), "-----END CERTIFICATE-----")
 
 	// Validate instance addresses
-	assert.Len(t, instances, 3)
-	assert.Contains(t, instances, contractAddrStr)
-	assert.Contains(t, instances, contractAddrStr+".instance1")
-	assert.Contains(t, instances, contractAddrStr+".instance2")
-}
-
-// TestRegistryAppResolver_GetCert tests the GetCert method
-func TestRegistryAppResolver_GetCert(t *testing.T) {
-	// Set up test environment
-	contractAddr, _, mockRegistryFactory, kmsInstance, logger := setupTestEnvironment(t)
-
-	// Create app resolver
-	resolver := NewRegistryAppResolver(
-		&LocalKMSRegistrationProvider{KMS: kmsInstance},
-		mockRegistryFactory,
-		time.Minute,
-		logger,
-	)
-
-	// Test GetCert
-	cert, err := resolver.GetCert(contractAddr)
-
-	// Verify results
-	assert.NoError(t, err)
-	assert.NotNil(t, cert)
-
-	// Additional validation for the certificate
-	assert.NotNil(t, cert.Certificate)
-	assert.NotNil(t, cert.PrivateKey)
-
-	// Implementation for the TODO - validate certificate is properly formed
-	// Check that it has certificates in the chain
-	assert.True(t, len(cert.Certificate) > 0, "Certificate should have at least one certificate in the chain")
-
-	// Check that private key exists and matches certificate
-	assert.NotNil(t, cert.PrivateKey, "Certificate should have a private key")
+	assert.Len(t, resp.DomainNames, 3)
+	for _, dn := range domainNames {
+		assert.Contains(t, resp.DomainNames, interfaces.AppDomainName(dn))
+	}
 }

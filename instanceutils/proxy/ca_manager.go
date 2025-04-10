@@ -3,8 +3,6 @@ package proxy
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/asn1"
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
@@ -12,6 +10,8 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/ruteri/tee-service-provisioning-backend/api"
+	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
 
@@ -19,8 +19,8 @@ import (
 // using the AppResolver to fetch certificates and CAs for different applications.
 // It manages TLS certificates for secure cross-application communication.
 type AppCertificateManager struct {
-	// appResolver used to fetch certificates and CAs
-	appResolver AppResolver
+	registrationProvider api.RegistrationProvider
+	metadataProvider     api.MetadataProvider
 
 	// ourAppAddress is our application's contract address for identity
 	ourAppAddress interfaces.ContractAddress
@@ -38,7 +38,8 @@ type AppCertificateManager struct {
 
 // NewAppCertificateManager creates a new certificate manager for application communication.
 // Parameters:
-//   - appResolver: Resolver for fetching application certificates and metadata
+//   - registrationProvider: Resolver for fetching signed certificates
+//   - metadataProvider: Resolver for fetching PKI
 //   - ourAppAddress: Our application's contract address
 //   - log: Logger for operational insights
 //
@@ -46,16 +47,18 @@ type AppCertificateManager struct {
 //   - Configured AppCertificateManager
 //   - Error if certificate loading fails
 func NewAppCertificateManager(
-	appResolver AppResolver,
+	registrationProvider api.RegistrationProvider,
+	metadataProvider api.MetadataProvider,
 	ourAppAddress interfaces.ContractAddress,
 	log *slog.Logger,
 ) (*AppCertificateManager, error) {
 	// Initialize manager
 	manager := &AppCertificateManager{
-		appResolver:   appResolver,
-		ourAppAddress: ourAppAddress,
-		caCache:       make(map[string]*x509.Certificate),
-		log:           log,
+		registrationProvider: registrationProvider,
+		metadataProvider:     metadataProvider,
+		ourAppAddress:        ourAppAddress,
+		caCache:              make(map[string]*x509.Certificate),
+		log:                  log,
 	}
 
 	// Fetch our certificate for outgoing communications
@@ -73,20 +76,21 @@ func NewAppCertificateManager(
 // our identity to other instances.
 func (m *AppCertificateManager) loadOurCertificate() (*tls.Certificate, error) {
 	// Fetch our certificate and private key from the resolver
-	tlsCert, err := m.appResolver.GetCert(m.ourAppAddress)
+	// TODO: add a local provider that just reads it from file
+	key, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(m.ourAppAddress).String())
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare CSR for registration: %w", err)
+	}
+	registryResponse, err := m.registrationProvider.Register(m.ourAppAddress, csr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get signed certificate from registry: %w", err)
+	}
+	tlsCert, err := tls.X509KeyPair(registryResponse.TLSCert, key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get certificate: %w", err)
 	}
 
-	// Add extended key usage for our contract address
-	tlsCert.Leaf.ExtraExtensions = []pkix.Extension{
-		{
-			Id:    asn1.ObjectIdentifier{2, 5, 29, 17},
-			Value: m.ourAppAddress[:],
-		},
-	}
-
-	return tlsCert, nil
+	return &tlsCert, nil
 }
 
 // GetClientCertificate returns our application's certificate for outgoing connections.
@@ -159,13 +163,13 @@ func (m *AppCertificateManager) CACertFor(contractAddr interfaces.ContractAddres
 	}
 
 	// Fetch CA from resolver
-	caCert, _, err := m.appResolver.GetAppMetadata(contractAddr)
+	metadata, err := m.metadataProvider.GetAppMetadata(contractAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get CA certificate: %w", err)
 	}
 
 	// Parse the PEM encoded CA cert
-	block, _ := pem.Decode(caCert)
+	block, _ := pem.Decode(metadata.CACert)
 	if block == nil || block.Type != "CERTIFICATE" {
 		return nil, fmt.Errorf("failed to decode CA certificate PEM")
 	}

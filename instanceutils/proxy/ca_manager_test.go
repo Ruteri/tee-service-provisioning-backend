@@ -45,14 +45,13 @@ func TestAppCertificateManager_WithRealKMS(t *testing.T) {
 
 	// Create a real AppResolver
 	appResolver := instanceutils.NewRegistryAppResolver(
-		&instanceutils.LocalKMSRegistrationProvider{KMS: kmsInstance},
 		mockRegistryFactory,
 		0, // Default cache time
 		logger,
 	)
 
 	// Create certificate manager
-	manager, err := NewAppCertificateManager(appResolver, contractAddr, logger)
+	manager, err := NewAppCertificateManager(&instanceutils.LocalKMSRegistrationProvider{KMS: kmsInstance}, appResolver, contractAddr, logger)
 	assert.NoError(t, err)
 	assert.NotNil(t, manager)
 
