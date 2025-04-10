@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -27,7 +26,7 @@ var flags []cli.Flag = []cli.Flag{
 	&cli.StringFlag{
 		Name:     "app-contract",
 		Required: true,
-		Usage:    "Application governance contract address to request provisioning for. 40-char hex string with no 0x prefix",
+		Usage:    "Application governance contract address to request provisioning for",
 	},
 	&cli.StringFlag{
 		Name:  "mount-point",
@@ -152,15 +151,10 @@ func NewProvisioner(cCtx *cli.Context) (*Provisioner, error) {
 		appKeyFile = mountPoint + "/autoprovisioning/app.key"
 	}
 
-	var appContract interfaces.ContractAddress
-	appContractBytes, err := hex.DecodeString(cCtx.String("app-contract"))
+	appContract, err := interfaces.NewContractAddressFromHex(cCtx.String("app-contract"))
 	if err != nil {
-		return nil, fmt.Errorf("could not parse app contract address: %w", err)
+		return nil, err
 	}
-	if len(appContractBytes) != 20 {
-		return nil, fmt.Errorf("app contract address has incorrect length %d (expected 20)", len(appContractBytes))
-	}
-	copy(appContract[:], appContractBytes)
 
 	var registrationProvider api.RegistrationProvider
 	if !cCtx.Bool("debug-local-provider") {
