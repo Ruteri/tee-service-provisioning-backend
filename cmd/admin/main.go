@@ -14,6 +14,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/ruteri/tee-service-provisioning-backend/api"
 	"github.com/ruteri/tee-service-provisioning-backend/api/clients"
 	"github.com/ruteri/tee-service-provisioning-backend/api/handlers"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
@@ -326,7 +327,7 @@ func main() {
 						return err
 					}
 
-					var shareData handlers.AdminGetShareResponse 
+					var shareData api.AdminGetShareResponse
 					err = json.Unmarshal(shareResponseJSON, &shareData)
 					if err != nil {
 						return err

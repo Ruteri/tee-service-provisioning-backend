@@ -1,4 +1,4 @@
-// Package httpserver implements a unified HTTP server for a TEE registry system
+// Package handlers implements a unified HTTP server for a TEE registry system
 // with secure KMS bootstrapping capabilities.
 //
 // This package provides a complete solution for secure KMS initialization
@@ -27,6 +27,7 @@ import (
 	"sync"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/ruteri/tee-service-provisioning-backend/api"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/ruteri/tee-service-provisioning-backend/kms"
 )
@@ -300,7 +301,7 @@ func (h *AdminHandler) handleInitGenerate(w http.ResponseWriter, r *http.Request
 		adminIDs = append(adminIDs, id)
 	}
 
-	adminShares  := make(map[string]*SecureShare)
+	adminShares := make(map[string]*SecureShare)
 
 	// Create secure shares (encrypt each share for its designated admin)
 	for i, share := range shares {
@@ -415,19 +416,13 @@ func (h *AdminHandler) handleGetShare(w http.ResponseWriter, r *http.Request) {
 
 	// Return the encrypted share to the admin
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(AdminGetShareResponse{
-		ShareIndex: secureShare.ShareIndex,
+	json.NewEncoder(w).Encode(api.AdminGetShareResponse{
+		ShareIndex:     secureShare.ShareIndex,
 		EncryptedShare: base64.StdEncoding.EncodeToString(secureShare.EncryptedShare),
 	})
 
 	h.log.Info("Admin retrieved their share", "adminID", adminID, "shareIndex", secureShare.ShareIndex)
 }
-
-
-	type AdminGetShareResponse struct {
-		ShareIndex int `json:"share_index"`
-		EncryptedShare string `json:"encrypted_share"` // base64 encoded
-	}
 
 // handleInitRecover initiates the recovery process.
 //
@@ -673,14 +668,14 @@ func (h *AdminHandler) verifyAdmin(r *http.Request) (string, bool) {
 	return adminID, true
 }
 
-	type ShamirAdminsConfig struct {
-		Admins []ShamirAdminMetadata `json:"admins"`
-	}
+type ShamirAdminsConfig struct {
+	Admins []ShamirAdminMetadata `json:"admins"`
+}
 
-		type ShamirAdminMetadata struct {
-			ID     string `json:"id"`
-			PubKey string `json:"pubkey"`
-		}
+type ShamirAdminMetadata struct {
+	ID     string `json:"id"`
+	PubKey string `json:"pubkey"`
+}
 
 // LoadAdminKeys loads admin public keys from a JSON file.
 //

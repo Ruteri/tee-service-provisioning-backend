@@ -58,6 +58,17 @@ func setupTestEnvironment(t *testing.T) (string, *slog.Logger, interfaces.KMS, i
 	return tempDir, logger, kmsInstance, storageFactory, fileBackend
 }
 
+func getTestMeasurements() map[int]string {
+	var bytesPrefix [47]byte
+	return map[int]string{
+		0: hex.EncodeToString(append(bytesPrefix[:], 0)),
+		1: hex.EncodeToString(append(bytesPrefix[:], 1)),
+		2: hex.EncodeToString(append(bytesPrefix[:], 2)),
+		3: hex.EncodeToString(append(bytesPrefix[:], 3)),
+		4: hex.EncodeToString(append(bytesPrefix[:], 4)),
+	}
+}
+
 // Test HandleRegister - Success Path
 func TestHandleRegister_Success(t *testing.T) {
 	tempDir, logger, kmsInstance, storageFactory, fileBackend := setupTestEnvironment(t)
@@ -100,14 +111,7 @@ func TestHandleRegister_Success(t *testing.T) {
 	req.Header.Set(api.AttestationTypeHeader, api.QemuTDX)
 
 	// Use JSON-encoded measurement map
-	measurementsMap := map[string]string{
-		"0": "00",
-		"1": "01",
-		"2": "02",
-		"3": "03",
-		"4": "04",
-	}
-	measurementsJSON, err := json.Marshal(measurementsMap)
+	measurementsJSON, err := json.Marshal(getTestMeasurements())
 	require.NoError(t, err)
 	req.Header.Set(api.MeasurementHeader, string(measurementsJSON))
 
@@ -175,15 +179,7 @@ func TestHandleRegister_IdentityNotWhitelisted(t *testing.T) {
 	)
 	req.Header.Set(api.AttestationTypeHeader, api.QemuTDX)
 
-	// Use JSON-encoded measurement map
-	measurementsMap := map[string]string{
-		"0": "00",
-		"1": "01",
-		"2": "02",
-		"3": "03",
-		"4": "04",
-	}
-	measurementsJSON, err := json.Marshal(measurementsMap)
+	measurementsJSON, err := json.Marshal(getTestMeasurements())
 	require.NoError(t, err)
 	req.Header.Set(api.MeasurementHeader, string(measurementsJSON))
 
@@ -341,14 +337,7 @@ func TestConfigReferenceResolution(t *testing.T) {
 	req.Header.Set(api.AttestationTypeHeader, api.QemuTDX)
 
 	// Set up measurements header
-	measurementsMap := map[string]string{
-		"0": "00",
-		"1": "01",
-		"2": "02",
-		"3": "03",
-		"4": "04",
-	}
-	measurementsJSON, err := json.Marshal(measurementsMap)
+	measurementsJSON, err := json.Marshal(getTestMeasurements())
 	require.NoError(t, err)
 	req.Header.Set(api.MeasurementHeader, string(measurementsJSON))
 
@@ -460,12 +449,11 @@ func TestServerSideDecryption(t *testing.T) {
 	handler := NewHandler(kmsInstance, storageFactory, mockRegistryFactory, logger)
 
 	// Create test request data
-	measurements := map[string]string{"0": "00", "1": "01"}
 	_, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(contractAddr).String())
 	require.NoError(t, err)
 
 	// Call handleRegister directly
-	appPrivkey, _, processedConfig, err := handler.handleRegister(ctx, api.QemuTDX, measurements, contractAddr, csr)
+	appPrivkey, _, processedConfig, err := handler.handleRegister(ctx, api.QemuTDX, getTestMeasurements(), contractAddr, csr)
 	require.NoError(t, err)
 	require.NotNil(t, appPrivkey)
 
@@ -574,12 +562,11 @@ func TestComplexConfigWithServerDecryption(t *testing.T) {
 	handler := NewHandler(kmsInstance, storageFactory, mockRegistryFactory, logger)
 
 	// Create test request data
-	measurements := map[string]string{"0": "00", "1": "01"}
 	_, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(contractAddr).String())
 	require.NoError(t, err)
 
 	// Call handleRegister
-	_, _, processedConfig, err := handler.handleRegister(ctx, api.QemuTDX, measurements, contractAddr, csr)
+	_, _, processedConfig, err := handler.handleRegister(ctx, api.QemuTDX, getTestMeasurements(), contractAddr, csr)
 	require.NoError(t, err)
 
 	// Parse the processed config
@@ -669,12 +656,11 @@ func TestDecryptionFailure(t *testing.T) {
 	handler := NewHandler(kmsInstance, storageFactory, mockRegistryFactory, logger)
 
 	// Create test request data
-	measurements := map[string]string{"0": "00", "1": "01"}
 	_, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(contractAddr).String())
 	require.NoError(t, err)
 
 	// Call handleRegister - decryption should fail but not crash
-	_, _, _, err = handler.handleRegister(ctx, api.QemuTDX, measurements, contractAddr, csr)
+	_, _, _, err = handler.handleRegister(ctx, api.QemuTDX, getTestMeasurements(), contractAddr, csr)
 	require.Error(t, err)
 
 	// Verify mock expectations
@@ -732,13 +718,11 @@ func TestNonJSONSecret(t *testing.T) {
 	// Create handler
 	handler := NewHandler(kmsInstance, storageFactory, mockRegistryFactory, logger)
 
-	// Create test request data
-	measurements := map[string]string{"0": "00", "1": "01"}
 	_, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(contractAddr).String())
 	require.NoError(t, err)
 
 	// Call handleRegister
-	_, _, processedConfig, err := handler.handleRegister(ctx, api.QemuTDX, measurements, contractAddr, csr)
+	_, _, processedConfig, err := handler.handleRegister(ctx, api.QemuTDX, getTestMeasurements(), contractAddr, csr)
 	require.NoError(t, err)
 
 	// Parse the processed config

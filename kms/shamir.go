@@ -36,6 +36,10 @@ type ShamirKMS struct {
 	attestationProvider AttestationProvider
 }
 
+func (k *ShamirKMS) SimpleKMS() *SimpleKMS {
+	return &SimpleKMS{masterKey: k.masterKey, attestationProvider: k.attestationProvider}
+}
+
 // NewShamirKMS creates a new ShamirKMS instance for initial setup.
 // This function splits the master key into shares using Shamir's Secret Sharing.
 // The shares must be securely distributed to administrators and the original master key
@@ -92,11 +96,12 @@ func NewShamirKMS(masterKey []byte, threshold, totalShares int) (*ShamirKMS, [][
 //   - The ShamirKMS instance in locked state, ready to accept shares
 func NewShamirKMSRecovery(threshold int) *ShamirKMS {
 	return &ShamirKMS{
-		masterKey:      nil,
-		isUnlocked:     false,
-		threshold:      threshold,
-		receivedShares: make(map[int][]byte),
-		adminPubKeys:   make(map[string]bool),
+		masterKey:           nil,
+		isUnlocked:          false,
+		threshold:           threshold,
+		receivedShares:      make(map[int][]byte),
+		adminPubKeys:        make(map[string]bool),
+		attestationProvider: DumyAttestationProvider{},
 	}
 }
 
@@ -261,9 +266,7 @@ func (k *ShamirKMS) GetPKI(contractAddr interfaces.ContractAddress) (interfaces.
 		return interfaces.AppPKI{}, errors.New("KMS is locked - need more shares to unlock")
 	}
 
-	// Create a SimpleKMS instance to delegate the actual operation
-	simpleKMS := &SimpleKMS{masterKey: k.masterKey}
-	return simpleKMS.GetPKI(contractAddr)
+	return k.SimpleKMS().GetPKI(contractAddr)
 }
 
 // Get the application private key for a contract.
@@ -275,9 +278,7 @@ func (k *ShamirKMS) GetAppPrivkey(contractAddr interfaces.ContractAddress) (inte
 		return nil, errors.New("KMS is locked - need more shares to unlock")
 	}
 
-	// Create a SimpleKMS instance to delegate the actual operation
-	simpleKMS := &SimpleKMS{masterKey: k.masterKey}
-	return simpleKMS.GetAppPrivkey(contractAddr)
+	return k.SimpleKMS().GetAppPrivkey(contractAddr)
 }
 
 // Sign a CSR for a verified TEE instance.
@@ -289,9 +290,7 @@ func (k *ShamirKMS) SignCSR(contractAddr interfaces.ContractAddress, csr interfa
 		return nil, errors.New("KMS is locked - need more shares to unlock")
 	}
 
-	// Create a SimpleKMS instance to delegate the actual operation
-	simpleKMS := &SimpleKMS{masterKey: k.masterKey}
-	return simpleKMS.SignCSR(contractAddr, csr)
+	return k.SimpleKMS().SignCSR(contractAddr, csr)
 }
 
 // Securely wipe data from memory

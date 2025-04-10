@@ -36,16 +36,16 @@ func TestRegistryContract_Identity(t *testing.T) {
 
 	// Test DCAP identity calculation
 	dcapReport := &interfaces.DCAPReport{
-		MrTd: [32]byte{0x01},
-		RTMRs: [4][32]byte{
+		MrTd: [48]byte{0x01},
+		RTMRs: [4][48]byte{
 			{0x01, 0x01}, // RTMR0
 			{0x02, 0x02}, // RTMR1
 			{0x03, 0x03}, // RTMR2
 			{0x04, 0x04}, // RTMR3
 		},
-		MrOwner:       [32]byte{0x05},
-		MrConfigId:    [32]byte{0x06},
-		MrConfigOwner: [32]byte{0x07},
+		MrOwner:       [48]byte{0x05},
+		MrConfigId:    [48]byte{0x06},
+		MrConfigOwner: [48]byte{0x07},
 	}
 
 	dcapIdentity, err := regClient.ComputeDCAPIdentity(dcapReport)
@@ -94,7 +94,7 @@ func TestRegistryContract_ArtifactAndIdentity(t *testing.T) {
 
 	// Test setting config for a DCAP report
 	dcapReport := &interfaces.DCAPReport{
-		RTMRs: [4][32]byte{
+		RTMRs: [4][48]byte{
 			{0x01, 0x02}, // RTMR0
 			{0x03, 0x04}, // RTMR1
 			{0x05, 0x06}, // RTMR2

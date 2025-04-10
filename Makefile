@@ -95,7 +95,7 @@ docker-httpserver: ## Build the HTTP server Docker image
 
 .PHONY: bindings
 bindings: ## Generate golang bindings for the contract
-	forge build OnchainRegistry.sol
+	forge build ./src/OnchainRegistry.sol
 	jq '.abi' out/OnchainRegistry.sol/Registry.json > Registry.abi
 	jq -r '.bytecode.object' out/OnchainRegistry.sol/Registry.json > Registry.bin
 	abigen --abi=Registry.abi --bin=Registry.bin --pkg=registry --out=bindings/registry/registry.go

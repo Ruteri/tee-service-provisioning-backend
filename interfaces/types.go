@@ -128,7 +128,47 @@ func (name AppCommonName) Validate() error {
 
 // DCAPReport represents a Direct Capability Attestation Protocol report.
 // It contains measurement registers that uniquely identify a TEE instance.
-type DCAPReport = registry.DCAPReport
+type DCAPReport struct {
+	MrTd          [48]byte
+	RTMRs         [4][48]byte
+	MrOwner       [48]byte
+	MrConfigId    [48]byte
+	MrConfigOwner [48]byte
+}
+
+func DCAPReportFromMeasurement(measurements map[int]string) (*DCAPReport, error) {
+	dcapReport := &DCAPReport{}
+
+	mrtdHex, ok := measurements[0]
+	if !ok {
+		return nil, fmt.Errorf("mrtd missing")
+	}
+	mrtd, err := hex.DecodeString(mrtdHex)
+	if err != nil {
+		return nil, fmt.Errorf("could not decode mrtd measurement value %x: %w", mrtdHex, err)
+	}
+	if len(mrtd) != 48 {
+		return nil, fmt.Errorf("invalid mrtd measurement value %x", mrtd)
+	}
+
+	copy(dcapReport.MrTd[:], mrtd)
+
+	for rtmr := range 3 {
+		rtmrHex, ok := measurements[1+rtmr]
+		if !ok {
+			return nil, fmt.Errorf("rtmr %d missing", rtmr)
+		}
+		rtmrBytes, err := hex.DecodeString(rtmrHex)
+		if err != nil {
+			return nil, fmt.Errorf("could not decode rtmr %d measurement value %x: %w", rtmr, rtmrHex, err)
+		}
+		if len(rtmrBytes) != 48 {
+			return nil, fmt.Errorf("invalid rtmr %d value %x", rtmr, rtmrBytes)
+		}
+		copy(dcapReport.RTMRs[rtmr][:], rtmrBytes)
+	}
+	return dcapReport, nil
+}
 
 // DCAPEvent represents an event in the TEE runtime event log.
 type DCAPEvent = registry.DCAPEvent

@@ -81,11 +81,8 @@ func (m *MockRegistryClient) AddArtifact(data []byte) ([32]byte, *types.Transact
 // This implementation simply hashes the first two RTMRs for demonstration purposes.
 func (m *MockRegistryClient) ComputeDCAPIdentity(report *interfaces.DCAPReport) ([32]byte, error) {
 	// Simple mock implementation that hashes the first two RTMRs
-	var data []byte
-	data = append(data, report.RTMRs[0][:]...)
-	data = append(data, report.RTMRs[1][:]...)
-
-	return sha256.Sum256(data), nil
+	var data []byte = append(report.RTMRs[0][:], report.RTMRs[1][:]...)
+	return sha256.Sum256(data[:]), nil
 }
 
 // ComputeMAAIdentity calculates a mock identity from an MAA report.

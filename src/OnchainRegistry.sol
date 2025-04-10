@@ -13,11 +13,12 @@ struct DCAPEvent {
 }
 
 struct DCAPReport {
-	bytes32 mrTd;          // Measurement register for TD
-	bytes32[4] RTMRs;      // Runtime measurement registers
-	bytes32 mrOwner;       // Measurement register for owner
-	bytes32 mrConfigId;    // Measurement register for config ID
-	bytes32 mrConfigOwner; // Measurement register for config owner
+    // All fields are expected to be 48 bytes
+	bytes mrTd;          // Measurement register for TD
+	bytes[4] RTMRs;      // Runtime measurement registers
+	bytes mrOwner;       // Measurement register for owner
+	bytes mrConfigId;    // Measurement register for config ID
+	bytes mrConfigOwner; // Measurement register for config owner
 }
 
 struct MAAReport {
@@ -218,6 +219,14 @@ contract Registry is AccessControl, Ownable, ReentrancyGuard, IRegistry {
         view 
         returns (bytes32 identity) 
     {
+        require(report.mrTd.length == 48, "incorrect mrtd length");
+        require(report.RTMRs[0].length == 48, "incorrect RTMR[0] length");
+        require(report.RTMRs[1].length == 48, "incorrect RTMR[1] length");
+        require(report.RTMRs[2].length == 48, "incorrect RTMR[2] length");
+        require(report.RTMRs[3].length == 48, "incorrect RTMR[3] length");
+        require(report.mrOwner.length == 48, "incorrect mrOwner length");
+        require(report.mrConfigId.length == 48, "incorrect mrConfigId length");
+        require(report.mrConfigOwner.length == 48, "incorrect mrConfigOwner length");
         return keccak256(abi.encodePacked(address(this), report.RTMRs[0], report.RTMRs[1], report.RTMRs[2]));
     }
 

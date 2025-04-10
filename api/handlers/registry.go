@@ -105,7 +105,7 @@ func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse measurements JSON to map
-	var measurements map[string]string
+	var measurements map[int]string
 	if err := json.Unmarshal([]byte(measurementsJSON), &measurements); err != nil {
 		h.log.Error("Failed to parse measurements JSON", "err", err, "json", measurementsJSON)
 		http.Error(w, "Invalid measurements format", http.StatusBadRequest)
@@ -252,7 +252,7 @@ func (h *Handler) HandleAppMetadata(w http.ResponseWriter, r *http.Request) {
 //   - Signed TLS certificate
 //   - Instance configuration
 //   - Error if registration fails
-func (h *Handler) handleRegister(ctx context.Context, attestationType string, measurements map[string]string, contractAddr interfaces.ContractAddress, csr interfaces.TLSCSR) (interfaces.AppPrivkey, interfaces.TLSCert, interfaces.InstanceConfig, error) {
+func (h *Handler) handleRegister(ctx context.Context, attestationType string, measurements map[int]string, contractAddr interfaces.ContractAddress, csr interfaces.TLSCSR) (interfaces.AppPrivkey, interfaces.TLSCert, interfaces.InstanceConfig, error) {
 	// Get the registry for this contract
 	registry, err := h.registryFactory.RegistryFor(contractAddr)
 	if err != nil {

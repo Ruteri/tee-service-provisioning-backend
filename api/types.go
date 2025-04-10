@@ -66,6 +66,11 @@ type MetadataResponse struct {
 	Attestation interfaces.Attestation `json:"attestaion"`
 }
 
+type AdminGetShareResponse struct {
+	ShareIndex     int    `json:"share_index"`
+	EncryptedShare string `json:"encrypted_share"` // base64 encoded
+}
+
 // AttestationToIdentity converts attestation data to an identity hash.
 // It uses the appropriate computation method based on attestation type.
 //
@@ -77,18 +82,27 @@ type MetadataResponse struct {
 // Returns:
 //   - The computed identity hash
 //   - Error if attestation type is unsupported or computation fails
-func AttestationToIdentity(attestationType string, measurements map[string]string, registry interfaces.OnchainRegistry) ([32]byte, error) {
+func AttestationToIdentity(attestationType string, measurements map[int]string, registry interfaces.OnchainRegistry) ([32]byte, error) {
 	switch attestationType {
 	case AzureTDX:
 		// For MAA the measurements are simply the PCRs encoded as map[uint32][]byte
-		// Create an empty MAA report - this is a placeholder, you'll need to fill it properly
 		maaReport := &interfaces.MAAReport{}
-		return registry.ComputeMAAIdentity(maaReport)
+		for i, v := range measurements {
+			if len(v) != 32 {
+				return [32]byte{}, fmt.Errorf("invalid MAA measurement value %x for pcr %d", v, i)
+			}
+			copy(maaReport.PCRs[i][:], v)
+		}
+		identity, err := registry.ComputeMAAIdentity(maaReport)
+		return identity, err
 	case QemuTDX:
 		// For DCAP the measurements are RTMRs and MRTD encoded as map[uint32][]byte
-		// Create an empty DCAP report - this is a placeholder, you'll need to fill it properly
-		dcapReport := &interfaces.DCAPReport{}
-		return registry.ComputeDCAPIdentity(dcapReport)
+		dcapReport, err := interfaces.DCAPReportFromMeasurement(measurements)
+		if err != nil {
+			return [32]byte{}, err
+		}
+		identity, err := registry.ComputeDCAPIdentity(dcapReport)
+		return identity, err
 	default:
 		return [32]byte{}, fmt.Errorf("unsupported attestation type: %s", attestationType)
 	}

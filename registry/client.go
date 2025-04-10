@@ -4,12 +4,12 @@ package registry
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/ruteri/tee-service-provisioning-backend/bindings/registry"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
@@ -68,19 +68,32 @@ func (c *OnchainRegistryClient) GetPKI() (*interfaces.AppPKI, error) {
 	}, nil
 }
 
+func DCAPReportToContractDCAPReport(report *interfaces.DCAPReport) registry.DCAPReport {
+	// Convert interfaces.DCAPReport to registry.DCAPReport
+	contractReport := registry.DCAPReport{}
+
+	contractReport.MrTd = make([]byte, 48)
+	copy(contractReport.MrTd, report.MrTd[:])
+
+	for rtmr := range report.RTMRs {
+		contractReport.RTMRs[rtmr] = make([]byte, 48)
+		copy(contractReport.RTMRs[rtmr], report.RTMRs[rtmr][:])
+	}
+
+	contractReport.MrConfigId = make([]byte, 48)
+	contractReport.MrConfigOwner = make([]byte, 48)
+	contractReport.MrOwner = make([]byte, 48)
+
+	return contractReport
+}
+
 // ComputeDCAPIdentity calculates the identity hash for a DCAP report
 // using the same algorithm as the on-chain registry.
 func (c *OnchainRegistryClient) ComputeDCAPIdentity(report *interfaces.DCAPReport) ([32]byte, error) {
 	opts := &bind.CallOpts{Context: context.Background()}
 
 	// Convert interfaces.DCAPReport to registry.DCAPReport
-	contractReport := registry.DCAPReport{
-		MrTd:          report.MrTd,
-		RTMRs:         report.RTMRs,
-		MrOwner:       report.MrOwner,
-		MrConfigId:    report.MrConfigId,
-		MrConfigOwner: report.MrConfigOwner,
-	}
+	contractReport := DCAPReportToContractDCAPReport(report)
 
 	// The contract expects an empty array of DCAPEvents as a second parameter
 	emptyEventLog := []registry.DCAPEvent{}
@@ -168,7 +181,7 @@ func (c *OnchainRegistryClient) AddArtifact(data []byte) ([32]byte, *types.Trans
 		return [32]byte{}, nil, err
 	}
 
-	var hash [32]byte = crypto.Keccak256Hash(data)
+	var hash [32]byte = sha256.Sum256(data)
 	return hash, tx, nil
 }
 
@@ -187,14 +200,7 @@ func (c *OnchainRegistryClient) SetConfigForDCAP(report *interfaces.DCAPReport, 
 		return nil, ErrNoTransactOpts
 	}
 
-	// Convert interfaces.DCAPReport to registry.DCAPReport
-	contractReport := registry.DCAPReport{
-		MrTd:          report.MrTd,
-		RTMRs:         report.RTMRs,
-		MrOwner:       report.MrOwner,
-		MrConfigId:    report.MrConfigId,
-		MrConfigOwner: report.MrConfigOwner,
-	}
+	contractReport := DCAPReportToContractDCAPReport(report)
 
 	// The contract expects an empty array of DCAPEvents as a second parameter
 	emptyEventLog := []registry.DCAPEvent{}
