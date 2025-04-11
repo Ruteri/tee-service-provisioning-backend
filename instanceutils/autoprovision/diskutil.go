@@ -1,4 +1,4 @@
-package autoprovision
+package main
 
 import (
 	"encoding/json"

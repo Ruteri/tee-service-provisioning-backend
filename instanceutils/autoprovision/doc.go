@@ -1,4 +1,4 @@
-// Package autoprovision implements TEE instance bootstrapping with secure disk encryption
+// Package main (autoprovision) implements TEE instance bootstrapping with secure disk encryption
 // and configuration management.
 //
 // This package provides a command-line tool that automates the process of:
@@ -61,4 +61,4 @@
 //   - TLS certificate and key for secure communication
 //   - Application private key for secure secret management
 //   - Resolved configuration from the registry
-package autoprovision
+package main
