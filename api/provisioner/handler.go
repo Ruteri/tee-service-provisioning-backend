@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/go-chi/chi/v5"
 	"github.com/ruteri/tee-service-provisioning-backend/api"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
@@ -90,6 +91,9 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 //   - X-Flashbots-Measurement: JSON-encoded measurement values
 //
 // Request body: TLS Certificate Signing Request (CSR) in PEM format
+// The CSR may optionally include an operator signature as an X.509 extension
+// with OID api.OIDOperatorSignature. This signature provides additional
+// authorization from an approved operator.
 //
 // Response: JSON, see api.RegistrationResponse
 //
@@ -253,6 +257,13 @@ func (h *Handler) HandleAppMetadata(w http.ResponseWriter, r *http.Request) {
 //   - contractAddress: Contract address for the application
 //   - csr: Certificate Signing Request in PEM format
 //
+// The function performs dual authorization:
+//  1. TEE Identity Verification: Computes an identity hash from attestation evidence
+//     and verifies it against the on-chain registry.
+//  2. Optional Operator Authorization: If the CSR contains an operator signature
+//     extension (OID api.OIDOperatorSignature), the function extracts and validates
+//     the operator's Ethereum address and passes on to on-chain contract for authorization.
+//
 // Returns:
 //   - Application private key
 //   - Signed TLS certificate
@@ -273,10 +284,37 @@ func (h *Handler) handleRegister(ctx context.Context, attestationType string, me
 		return nil, nil, nil, fmt.Errorf("identity computation error: %w", err)
 	}
 
-	// Get config template hash for this identity. This also makes sure the identity is whitelisted.
-	configTemplateHash, err := registry.IdentityConfigMap(identity)
+	// Parse CSR to extract any operator signature extensions
+	parsedCsr, err := csr.GetX509CSR()
 	if err != nil {
-		h.log.Error("Failed to get config template hash", "err", err, slog.String("identity", string(identity[:])))
+		h.log.Error("Failed to parse csr", "err", err)
+		return nil, nil, nil, fmt.Errorf("csr parsing error: %w", err)
+	}
+
+	// Extract operator address from signature extension if present
+	// This is used for additional authorization beyond the TEE attestation
+	var operatorAddress [20]byte
+	for _, ext := range parsedCsr.Extensions {
+		if ext.Id.Equal(api.OIDOperatorSignature) {
+			// Recover Ethereum address from signature over the CSR's public key
+			pubkey, err := crypto.SigToPub(cryptoutils.DERPubkeyHash(parsedCsr.RawSubjectPublicKeyInfo), ext.Value)
+			if err != nil {
+				h.log.Error("Failed to recover signer from operator signature", "err", err)
+				return nil, nil, nil, fmt.Errorf("operator signature verification error: %w", err)
+			}
+			// Convert public key to Ethereum address
+			operatorAddress = crypto.PubkeyToAddress(*pubkey)
+			h.log.Info("Operator signature present", "operator", hex.EncodeToString(operatorAddress[:]))
+		}
+	}
+
+	// Get config template hash for this identity, validating both TEE identity and operator if provided
+	// If operatorAddress is empty (no signature), authorization is based solely on TEE identity
+	configTemplateHash, err := registry.IdentityConfigMap(identity, operatorAddress)
+	if err != nil {
+		h.log.Error("Failed to get config template hash", "err", err,
+			slog.String("identity", string(identity[:])),
+			slog.String("operator", hex.EncodeToString(operatorAddress[:])))
 		return nil, nil, nil, fmt.Errorf("config lookup error for %x: %w", identity, err)
 	}
 

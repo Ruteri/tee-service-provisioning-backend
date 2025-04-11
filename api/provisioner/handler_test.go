@@ -7,6 +7,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
@@ -20,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/go-chi/chi/v5"
 	"github.com/ruteri/tee-service-provisioning-backend/api"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
@@ -91,7 +93,7 @@ func TestHandleRegister_Success(t *testing.T) {
 	// Setup mock expectations for registry
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
 	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
-	mockRegistry.On("IdentityConfigMap", identity).Return([32]byte(configHash), nil)
+	mockRegistry.On("IdentityConfigMap", identity, mock.Anything).Return([32]byte(configHash), nil)
 	mockRegistry.On("AllStorageBackends").Return([]string{fileBackend.LocationURI()}, nil)
 
 	// Create handler
@@ -161,7 +163,7 @@ func TestHandleRegister_IdentityNotWhitelisted(t *testing.T) {
 	// Setup mock expectations for failure case
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
 	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
-	mockRegistry.On("IdentityConfigMap", identity).Return([32]byte{}, errors.New("No mapping"))
+	mockRegistry.On("IdentityConfigMap", identity, mock.Anything).Return([32]byte{}, errors.New("No mapping"))
 
 	// Create handler
 	handler := NewHandler(kmsInstance, storageFactory, mockRegistryFactory, logger)
@@ -317,7 +319,7 @@ func TestConfigReferenceResolution(t *testing.T) {
 	// Set up mock expectations
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
 	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
-	mockRegistry.On("IdentityConfigMap", identity).Return([32]byte(templateHash), nil)
+	mockRegistry.On("IdentityConfigMap", identity, mock.Anything).Return([32]byte(templateHash), nil)
 	mockRegistry.On("AllStorageBackends").Return([]string{fileBackend.LocationURI()}, nil)
 
 	// Create handler
@@ -441,7 +443,7 @@ func TestServerSideDecryption(t *testing.T) {
 
 	// Setup mock expectations
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
-	mockRegistry.On("IdentityConfigMap", identity).Return([32]byte(configHash), nil)
+	mockRegistry.On("IdentityConfigMap", identity, mock.Anything).Return([32]byte(configHash), nil)
 	mockRegistry.On("AllStorageBackends").Return([]string{fileBackend.LocationURI()}, nil)
 	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
 
@@ -554,7 +556,7 @@ func TestComplexConfigWithServerDecryption(t *testing.T) {
 
 	// Setup mock expectations
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
-	mockRegistry.On("IdentityConfigMap", identity).Return([32]byte(configHash), nil)
+	mockRegistry.On("IdentityConfigMap", identity, mock.Anything).Return([32]byte(configHash), nil)
 	mockRegistry.On("AllStorageBackends").Return([]string{fileBackend.LocationURI()}, nil)
 	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
 
@@ -648,7 +650,7 @@ func TestDecryptionFailure(t *testing.T) {
 
 	// Setup mock expectations
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
-	mockRegistry.On("IdentityConfigMap", identity).Return([32]byte(configHash), nil)
+	mockRegistry.On("IdentityConfigMap", identity, mock.Anything).Return([32]byte(configHash), nil)
 	mockRegistry.On("AllStorageBackends").Return([]string{fileBackend.LocationURI()}, nil)
 	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
 
@@ -711,7 +713,7 @@ func TestNonJSONSecret(t *testing.T) {
 
 	// Setup mock expectations
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
-	mockRegistry.On("IdentityConfigMap", identity).Return([32]byte(configHash), nil)
+	mockRegistry.On("IdentityConfigMap", identity, mock.Anything).Return([32]byte(configHash), nil)
 	mockRegistry.On("AllStorageBackends").Return([]string{fileBackend.LocationURI()}, nil)
 	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
 
@@ -731,6 +733,242 @@ func TestNonJSONSecret(t *testing.T) {
 	require.Error(t, err)
 
 	// Verify mock expectations
+	mockRegistryFactory.AssertExpectations(t)
+	mockRegistry.AssertExpectations(t)
+}
+
+// TestHandleRegister_WithOperatorSignature tests the registration process
+// when an operator signature is included in the CSR.
+func TestHandleRegister_WithOperatorSignature(t *testing.T) {
+	tempDir, logger, kmsInstance, storageFactory, fileBackend := setupTestEnvironment(t)
+	defer os.RemoveAll(tempDir)
+
+	// Set up mock registry factory
+	mockRegistryFactory := new(registry.MockRegistryFactory)
+	mockRegistry := new(registry.MockRegistry)
+
+	// Set up test data
+	contractAddr := interfaces.ContractAddress(common.HexToAddress("0123456789abcdef0123"))
+	identity := [32]byte{1, 2, 3, 4}
+	configTemplate := []byte(`{"app":"test","settings":{"timeout":30}}`)
+
+	// Store the config in file storage
+	ctx := context.Background()
+	configHash, err := fileBackend.Store(ctx, configTemplate, interfaces.ConfigType)
+	require.NoError(t, err)
+
+	// Setup mock expectations for registry - note the operatorAddress parameter
+	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
+	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
+	mockRegistry.On("AllStorageBackends").Return([]string{fileBackend.LocationURI()}, nil)
+
+	// Create handler
+	handler := NewHandler(kmsInstance, storageFactory, mockRegistryFactory, logger)
+
+	// Create a private key for the instance
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	// Create CSR template with the correct CN
+	template := x509.CertificateRequest{
+		Subject: pkix.Name{
+			CommonName: interfaces.NewAppCommonName(contractAddr).String(),
+		},
+		SignatureAlgorithm: x509.ECDSAWithSHA256,
+	}
+
+	// Create the CSR
+	csrDER, err := x509.CreateCertificateRequest(rand.Reader, &template, privateKey)
+	require.NoError(t, err)
+
+	// Parse CSR to extract public key info
+	parsedCSR, err := x509.ParseCertificateRequest(csrDER)
+	require.NoError(t, err)
+
+	// Create operator's private key for signing
+	operatorKey, err := ecdsa.GenerateKey(crypto.S256(), rand.Reader)
+	require.NoError(t, err)
+
+	// Sign the CSR's public key info with operator's key
+	operatorSignature, err := crypto.Sign(cryptoutils.DERPubkeyHash(parsedCSR.RawSubjectPublicKeyInfo), operatorKey)
+	require.NoError(t, err)
+
+	// Get the operator's Ethereum address from public key to verify our test
+	derivedOperatorAddr := crypto.PubkeyToAddress(operatorKey.PublicKey)
+
+	var operatorAddress [20]byte
+	copy(operatorAddress[:], derivedOperatorAddr.Bytes())
+
+	mockRegistry.On("IdentityConfigMap", identity, operatorAddress).Return([32]byte(configHash), nil)
+
+	// Create a new CSR template with the signature extension
+	templateWithSig := template
+	templateWithSig.ExtraExtensions = []pkix.Extension{
+		{
+			Id:    api.OIDOperatorSignature,
+			Value: operatorSignature,
+		},
+	}
+
+	// Create the final CSR with signature extension
+	csrWithSigDER, err := x509.CreateCertificateRequest(rand.Reader, &templateWithSig, privateKey)
+	require.NoError(t, err)
+
+	// Encode CSR in PEM format
+	csrPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE REQUEST",
+		Bytes: csrWithSigDER,
+	})
+
+	// Create request with contract address in URL
+	contractAddrHex := hex.EncodeToString(contractAddr[:])
+	req := httptest.NewRequest(
+		http.MethodPost,
+		fmt.Sprintf("/api/attested/register/%s", contractAddrHex),
+		bytes.NewReader(csrPEM),
+	)
+	req.Header.Set(api.AttestationTypeHeader, api.QemuTDX)
+
+	// Use JSON-encoded measurement map
+	measurementsJSON, err := json.Marshal(getTestMeasurements())
+	require.NoError(t, err)
+	req.Header.Set(api.MeasurementHeader, string(measurementsJSON))
+
+	// Create response recorder
+	w := httptest.NewRecorder()
+
+	// Call handler
+	mux := chi.NewRouter()
+	mux.Post("/api/attested/register/{contract_address}", handler.HandleRegister)
+	mux.ServeHTTP(w, req)
+
+	// Verify response
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var result map[string]interface{}
+	respBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	err = json.Unmarshal(respBody, &result)
+	require.NoError(t, err, string(respBody))
+
+	// Verify response contains expected fields
+	assert.Contains(t, result, "app_privkey")
+	assert.Contains(t, result, "tls_cert")
+	assert.Contains(t, result, "config")
+
+	// Verify registry mock expectations were met
+	mockRegistryFactory.AssertExpectations(t)
+	mockRegistry.AssertExpectations(t)
+}
+
+// TestHandleRegister_UnauthorizedOperator tests rejection when an operator
+// without necessary permissions attempts to sign a CSR
+func TestHandleRegister_UnauthorizedOperator(t *testing.T) {
+	tempDir, logger, kmsInstance, storageFactory, _ := setupTestEnvironment(t)
+	defer os.RemoveAll(tempDir)
+
+	// Set up mock registry factory
+	mockRegistryFactory := new(registry.MockRegistryFactory)
+	mockRegistry := new(registry.MockRegistry)
+
+	// Set up test data
+	contractAddr := interfaces.ContractAddress(common.HexToAddress("0123456789abcdef0123"))
+	identity := [32]byte{1, 2, 3, 4}
+
+	// Setup mock expectations - operator is not authorized for this identity
+	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
+	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
+
+	// Create handler
+	handler := NewHandler(kmsInstance, storageFactory, mockRegistryFactory, logger)
+
+	// Create a private key for the instance
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	// Create CSR template
+	template := x509.CertificateRequest{
+		Subject: pkix.Name{
+			CommonName: interfaces.NewAppCommonName(contractAddr).String(),
+		},
+		SignatureAlgorithm: x509.ECDSAWithSHA256,
+	}
+
+	// Create the CSR
+	csrDER, err := x509.CreateCertificateRequest(rand.Reader, &template, privateKey)
+	require.NoError(t, err)
+
+	// Parse CSR to extract public key info
+	parsedCSR, err := x509.ParseCertificateRequest(csrDER)
+	require.NoError(t, err)
+
+	// Create operator's private key
+	operatorKey, err := ecdsa.GenerateKey(crypto.S256(), rand.Reader)
+	require.NoError(t, err)
+
+	// Get the operator's address
+	derivedOperatorAddr := crypto.PubkeyToAddress(operatorKey.PublicKey)
+	var operatorAddress [20]byte
+	copy(operatorAddress[:], derivedOperatorAddr.Bytes())
+	mockRegistry.On("IdentityConfigMap", identity, operatorAddress).Return([32]byte{}, errors.New("Operator not authorized"))
+
+	// Sign the CSR's public key info
+	operatorSignature, err := crypto.Sign(cryptoutils.DERPubkeyHash(parsedCSR.RawSubjectPublicKeyInfo), operatorKey)
+	require.NoError(t, err)
+
+	// Create CSR with signature extension
+	templateWithSig := template
+	templateWithSig.ExtraExtensions = []pkix.Extension{
+		{
+			Id:    api.OIDOperatorSignature,
+			Value: operatorSignature,
+		},
+	}
+
+	csrWithSigDER, err := x509.CreateCertificateRequest(rand.Reader, &templateWithSig, privateKey)
+	require.NoError(t, err)
+
+	// Encode CSR in PEM format
+	csrPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE REQUEST",
+		Bytes: csrWithSigDER,
+	})
+
+	// Create request
+	contractAddrHex := hex.EncodeToString(contractAddr[:])
+	req := httptest.NewRequest(
+		http.MethodPost,
+		fmt.Sprintf("/api/attested/register/%s", contractAddrHex),
+		bytes.NewReader(csrPEM),
+	)
+	req.Header.Set(api.AttestationTypeHeader, api.QemuTDX)
+
+	measurementsJSON, err := json.Marshal(getTestMeasurements())
+	require.NoError(t, err)
+	req.Header.Set(api.MeasurementHeader, string(measurementsJSON))
+
+	// Create response recorder
+	w := httptest.NewRecorder()
+
+	// Call handler
+	mux := chi.NewRouter()
+	mux.Post("/api/attested/register/{contract_address}", handler.HandleRegister)
+	mux.ServeHTTP(w, req)
+
+	// Verify response - should be rejected
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "config lookup error")
+
+	// Verify expectations
 	mockRegistryFactory.AssertExpectations(t)
 	mockRegistry.AssertExpectations(t)
 }

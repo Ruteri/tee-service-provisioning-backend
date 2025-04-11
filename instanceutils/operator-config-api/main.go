@@ -1,21 +1,15 @@
 package main
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/pem"
 	"fmt"
 	"io"
 	"log"
-	"math/big"
 	"net/http"
 	"os"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/urfave/cli/v2"
 )
 
@@ -83,7 +77,7 @@ func main() {
 			}
 
 			if listenTLS {
-				cert, err := randomCert()
+				cert, err := cryptoutils.RandomCert()
 				if err != nil {
 					log.Fatalf("could not generate random tls cert: %s", err.Error())
 				}
@@ -103,34 +97,4 @@ func main() {
 		log.Fatal(err)
 	}
 
-}
-
-func randomCert() (tls.Certificate, error) {
-	template := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject:      pkix.Name{},
-	}
-
-	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-
-	certASN1, err := x509.CreateCertificate(rand.Reader, template, template,
-		privateKey.Public(), privateKey)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certASN1})
-
-	privkeyBytes, err := x509.MarshalPKCS8PrivateKey(privateKey)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-
-	return tls.X509KeyPair(certPEM, pem.EncodeToMemory(&pem.Block{
-		Type:  "PRIVATE KEY",
-		Bytes: privkeyBytes,
-	}))
 }

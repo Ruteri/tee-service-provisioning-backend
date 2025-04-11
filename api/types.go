@@ -2,6 +2,7 @@ package api
 
 import (
 	"crypto/sha256"
+	"encoding/asn1"
 	"fmt"
 
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
@@ -76,6 +77,8 @@ type RegistryProvider interface {
 	MetadataProvider
 	RegistrationProvider
 }
+
+var OIDOperatorSignature asn1.ObjectIdentifier = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 66704, 98670, 17}
 
 // AttestationToIdentity converts attestation data to an identity hash.
 // It uses the appropriate computation method based on attestation type.

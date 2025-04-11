@@ -16,6 +16,7 @@ type MockRegistryClient struct {
 	mutex            sync.RWMutex
 	artifacts        map[[32]byte][]byte   // Storage for artifacts (configs, secrets, etc.)
 	idToArtifact     map[[32]byte][32]byte // Maps identity to artifact hash
+	allowedOperators map[[20]byte]bool     // Stores allowed operators
 	storageBackends  []string
 	domainNames      []string
 	pki              *interfaces.AppPKI
@@ -29,6 +30,7 @@ func NewMockRegistryClient() *MockRegistryClient {
 	return &MockRegistryClient{
 		artifacts:        make(map[[32]byte][]byte),
 		idToArtifact:     make(map[[32]byte][32]byte),
+		allowedOperators: make(map[[20]byte]bool),
 		storageBackends:  []string{},
 		domainNames:      []string{},
 		allowTransacting: false,
@@ -98,9 +100,13 @@ func (m *MockRegistryClient) ComputeMAAIdentity(report *interfaces.MAAReport) ([
 
 // IdentityConfigMap gets the artifact hash assigned to an identity in the mock registry.
 // Returns the artifact hash or an error if no mapping exists for the provided identity.
-func (m *MockRegistryClient) IdentityConfigMap(identity [32]byte) ([32]byte, error) {
+func (m *MockRegistryClient) IdentityConfigMap(identity [32]byte, operator [20]byte) ([32]byte, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
+
+	if !m.allowedOperators[operator] {
+		return [32]byte{}, errors.New("operator not allowed")
+	}
 
 	artifactHash, exists := m.idToArtifact[identity]
 	if !exists {
@@ -297,4 +303,11 @@ func (m *MockRegistryClient) RemoveWhitelistedIdentity(identity [32]byte) (*type
 	delete(m.idToArtifact, identity)
 
 	return &types.Transaction{}, nil
+}
+
+func (m *MockRegistryClient) WhitelistOperator(operator [20]byte) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
+	m.allowedOperators[operator] = true
 }

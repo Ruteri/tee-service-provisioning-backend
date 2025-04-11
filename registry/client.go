@@ -115,10 +115,10 @@ func (c *OnchainRegistryClient) ComputeMAAIdentity(report *interfaces.MAAReport)
 }
 
 // IdentityConfigMap gets the config hash assigned to an identity in the registry.
-func (c *OnchainRegistryClient) IdentityConfigMap(identity [32]byte) ([32]byte, error) {
+func (c *OnchainRegistryClient) IdentityConfigMap(identity [32]byte, address [20]byte) ([32]byte, error) {
 	opts := &bind.CallOpts{Context: context.Background()}
 
-	return c.contract.GetConfigForIdentity(opts, identity)
+	return c.contract.GetConfigForIdentity(opts, identity, address)
 }
 
 // AllStorageBackends retrieves all storage backend URIs registered in the contract.

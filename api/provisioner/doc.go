@@ -25,6 +25,20 @@
 //  5. The Handler processes the configuration template, resolving references and decrypting secrets
 //  6. The system returns the private key, signed certificate, and resolved configuration
 //
+// # Operator Signature Extension
+//
+// The system supports an optional additional authorization mechanism through operator signatures:
+//
+//  1. When enabled, the TEE instance generates a keypair and exposes its public key
+//  2. An authorized operator signs the instance's public key using their Ethereum private key
+//  3. The signature is embedded in the CSR as an X.509 extension with OID api.OIDOperatorSignature
+//  4. During registration, the handler extracts the signature and recovers the operator's Ethereum address
+//  5. The system checks if this operator is authorized to provision instances with the given identity
+//  6. Registration proceeds only if both the TEE identity and operator signature are valid
+//
+// This two-factor authorization (attestation + operator signature) provides enhanced security
+// for sensitive deployments and allows for explicit operator approval of each instance.
+//
 // # Configuration Template Processing
 //
 // The Handler resolves two types of references in configuration templates:

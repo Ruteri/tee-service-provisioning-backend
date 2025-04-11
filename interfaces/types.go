@@ -238,7 +238,7 @@ type OnchainRegistry interface {
 
 	// IdentityConfigMap gets the artifact hash assigned to an identity.
 	// Returns the artifact hash or an error if no mapping exists.
-	IdentityConfigMap(identity [32]byte) ([32]byte, error)
+	IdentityConfigMap(identity [32]byte, operator [20]byte) ([32]byte, error)
 
 	// AddArtifact adds a new artifact to the registry.
 	// This can be configuration data, encrypted secrets, or any other content.

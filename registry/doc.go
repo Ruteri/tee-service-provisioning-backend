@@ -31,7 +31,7 @@
 //	    ComputeDCAPIdentity(report *DCAPReport) ([32]byte, error)
 //	    ComputeMAAIdentity(report *MAAReport) ([32]byte, error)
 //	    GetArtifact(artifactHash [32]byte) ([]byte, error)
-//	    IdentityConfigMap(identity [32]byte) ([32]byte, error)
+//	    IdentityConfigMap(identity [32]byte, operator [32]byte) ([32]byte, error)
 //	    AddArtifact(data []byte) ([32]byte, *types.Transaction, error)
 //	    SetConfigForDCAP(report *DCAPReport, artifactHash [32]byte) (*types.Transaction, error)
 //	    SetConfigForMAA(report *MAAReport, artifactHash [32]byte) (*types.Transaction, error)

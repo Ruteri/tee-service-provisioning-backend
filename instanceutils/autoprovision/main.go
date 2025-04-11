@@ -1,13 +1,25 @@
-package main
+package autoprovision
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/go-chi/chi/v5"
 	"github.com/ruteri/tee-service-provisioning-backend/api"
 	"github.com/ruteri/tee-service-provisioning-backend/api/provisioner"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
@@ -17,7 +29,7 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-var flags []cli.Flag = []cli.Flag{
+var provisionerFlags []cli.Flag = []cli.Flag{
 	&cli.StringFlag{
 		Name:  "provisioning-server-addr",
 		Value: "http://127.0.0.1:8080",
@@ -28,41 +40,21 @@ var flags []cli.Flag = []cli.Flag{
 		Required: true,
 		Usage:    "Application governance contract address to request provisioning for",
 	},
-	&cli.StringFlag{
-		Name:  "mount-point",
-		Value: "/persistent",
-		Usage: "path to mount (decrypted) persistent disk on",
+}
+
+var operatorFlags []cli.Flag = []cli.Flag{
+	&cli.BoolFlag{
+		Name:  "await-operator-signature",
+		Usage: "If set, script will pause and wait for operator to provide their signature over CSR",
 	},
 	&cli.StringFlag{
-		Name:  "config-file",
-		Usage: "path to store resolved config file at. Defaults to <mount point>/autoprovisioning/config",
+		Name:  "operator-signature-listen-addr",
+		Value: "http://127.0.0.1:8082",
+		Usage: "Listen address for signature",
 	},
-	&cli.StringFlag{
-		Name:  "tls-cert-file",
-		Usage: "path to store tls cert file at. Defaults to <mount point>/autoprovisioning/tls.cert",
-	},
-	&cli.StringFlag{
-		Name:  "tls-key-file",
-		Usage: "path to store tls key file at. Defaults to <mount point>/autoprovisioning/tls.key",
-	},
-	&cli.StringFlag{
-		Name:  "app-privkey-file",
-		Usage: "path to store app key (secrets deriviation) file at. Defaults to <mount point>/autoprovisioning/app.key",
-	},
-	&cli.StringFlag{
-		Name:  "device-glob",
-		Value: "/dev/disk/by-path/*scsi-0:0:0:10",
-		Usage: "Device glob pattern",
-	},
-	&cli.StringFlag{
-		Name:  "mapper-name",
-		Value: "cryptdisk",
-		Usage: "Mapper name for encrypted persistent disk",
-	},
-	&cli.StringFlag{
-		Name:  "mapper-device",
-		Usage: "Mapper device to use. If unset defaults to '/dev/mapper/<mapper name>'",
-	},
+}
+
+var debugFlags []cli.Flag = []cli.Flag{
 	&cli.BoolFlag{
 		Name:  "debug-local-provider",
 		Usage: "If provided the provisioner will use a dummy provider instead of a remote one",
@@ -81,6 +73,47 @@ var flags []cli.Flag = []cli.Flag{
 	},
 }
 
+var diskFlags []cli.Flag = []cli.Flag{
+	&cli.StringFlag{
+		Name:  "mount-point",
+		Value: "/persistent",
+		Usage: "path to mount (decrypted) persistent disk on",
+	},
+	&cli.StringFlag{
+		Name:  "device-glob",
+		Value: "/dev/disk/by-path/*scsi-0:0:0:10",
+		Usage: "Device glob pattern",
+	},
+	&cli.StringFlag{
+		Name:  "mapper-name",
+		Value: "cryptdisk",
+		Usage: "Mapper name for encrypted persistent disk",
+	},
+	&cli.StringFlag{
+		Name:  "mapper-device",
+		Usage: "Mapper device to use. If unset defaults to '/dev/mapper/<mapper name>'",
+	},
+}
+
+var filesFlags []cli.Flag = []cli.Flag{
+	&cli.StringFlag{
+		Name:  "config-file",
+		Usage: "path to store resolved config file at. Defaults to <mount point>/autoprovisioning/config",
+	},
+	&cli.StringFlag{
+		Name:  "tls-cert-file",
+		Usage: "path to store tls cert file at. Defaults to <mount point>/autoprovisioning/tls.cert",
+	},
+	&cli.StringFlag{
+		Name:  "tls-key-file",
+		Usage: "path to store tls key file at. Defaults to <mount point>/autoprovisioning/tls.key",
+	},
+	&cli.StringFlag{
+		Name:  "app-privkey-file",
+		Usage: "path to store app key (secrets deriviation) file at. Defaults to <mount point>/autoprovisioning/app.key",
+	},
+}
+
 const usage string = `Instance auto-provisioning tool
 Will exit once instance is fully provisioned:
 * Encrypted disk is mounted
@@ -92,7 +125,7 @@ func main() {
 	app := &cli.App{
 		Name:  "autoprovision",
 		Usage: usage,
-		Flags: flags,
+		Flags: slices.Concat(provisionerFlags, operatorFlags, diskFlags, filesFlags, debugFlags),
 		Action: func(cCtx *cli.Context) error {
 			provisioner, err := NewProvisioner(cCtx)
 			if err != nil {
@@ -115,6 +148,9 @@ type Provisioner struct {
 	TLSCertPath    string
 	TLSKeyPath     string
 	AppPrivkeyPath string
+
+	ShouldAwaitOperatorSignature bool
+	CSRSignatureListenAddr       string
 
 	RegistrationProvider api.RegistrationProvider
 }
@@ -182,11 +218,13 @@ func NewProvisioner(cCtx *cli.Context) (*Provisioner, error) {
 			MapperName:   cCtx.String("mapper-name"),
 			MapperDevice: mapperDevice,
 		},
-		ConfigFilePath:       configFile,
-		TLSCertPath:          tlsCertFile,
-		TLSKeyPath:           tlsKeyFile,
-		AppPrivkeyPath:       appKeyFile,
-		RegistrationProvider: registrationProvider,
+		ConfigFilePath:               configFile,
+		TLSCertPath:                  tlsCertFile,
+		TLSKeyPath:                   tlsKeyFile,
+		AppPrivkeyPath:               appKeyFile,
+		ShouldAwaitOperatorSignature: cCtx.Bool("await-operator-signature"),
+		CSRSignatureListenAddr:       cCtx.String("operator-signature-listen-addr"),
+		RegistrationProvider:         registrationProvider,
 	}, nil
 }
 
@@ -199,10 +237,19 @@ func (p *Provisioner) Do() error {
 
 	if !isLuks(p.DiskConfig) {
 		// Brand new disk!
-		tlskey, csr, err := cryptoutils.CreateCSRWithRandomKey(CN.String())
+		tlskey, certificate_request, err := CreateCertificateRequest(CN.String())
 		if err != nil {
-			return fmt.Errorf("could not create instance CSR: %w", err)
+			return fmt.Errorf("could not create instance certificate request: %w", err)
 		}
+
+		if p.ShouldAwaitOperatorSignature {
+			certificate_request, err = p.AwaitCRSignature(tlskey, certificate_request)
+			if err != nil {
+				return fmt.Errorf("error while waiting for operator signature: %w", err)
+			}
+		}
+
+		tlskeyPem, csr, err := CreateCSR(tlskey, certificate_request)
 
 		parsedResponse, err := p.RegistrationProvider.Register(p.AppContract, csr)
 		if err != nil {
@@ -211,7 +258,7 @@ func (p *Provisioner) Do() error {
 
 		diskKey := cryptoutils.DeriveDiskKey(csr, []byte(parsedResponse.AppPrivkey))
 
-		if err = cryptoutils.VerifyCertificate(tlskey, []byte(parsedResponse.TLSCert), CN.String()); err != nil {
+		if err = cryptoutils.VerifyCertificate(tlskeyPem, []byte(parsedResponse.TLSCert), CN.String()); err != nil {
 			return fmt.Errorf("invalid certificate in registration response: %w", err)
 		}
 
@@ -241,7 +288,7 @@ func (p *Provisioner) Do() error {
 			{p.ConfigFilePath, []byte(parsedResponse.Config), 0600},
 			{p.TLSCertPath, []byte(parsedResponse.TLSCert), 0600},
 			{p.AppPrivkeyPath, []byte(parsedResponse.AppPrivkey), 0600},
-			{p.TLSKeyPath, tlskey, 0600},
+			{p.TLSKeyPath, tlskeyPem, 0600},
 		}
 
 		for _, fw := range fileWrites {
@@ -295,4 +342,95 @@ func (p *Provisioner) Do() error {
 	}
 
 	return nil
+}
+
+func (p *Provisioner) AwaitCRSignature(privateKey *ecdsa.PrivateKey, cr *x509.CertificateRequest) (*x509.CertificateRequest, error) {
+	pubkeyDer, err := x509.MarshalPKIXPublicKey(privateKey.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+	crPubkeyHash := cryptoutils.DERPubkeyHash(pubkeyDer)
+
+	sigCh := make(chan []byte, 1)
+
+	mux := chi.NewRouter()
+	mux.Get("/instance_pubkey", func(w http.ResponseWriter, r *http.Request) {
+		w.Write(crPubkeyHash)
+	})
+	mux.Post("/pubkey_signature", func(w http.ResponseWriter, r *http.Request) {
+		sig, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, fmt.Errorf("could not read request body: %w", err).Error(), 500)
+			return
+		}
+		_, err = crypto.Ecrecover(crPubkeyHash, sig)
+		if err != nil {
+			http.Error(w, fmt.Errorf("could not recover signature: %w", err).Error(), 400)
+			return
+		}
+		sigCh <- sig
+	})
+
+	s := http.Server{
+		Addr:    p.CSRSignatureListenAddr,
+		Handler: mux,
+	}
+
+	cert, err := cryptoutils.RandomCert()
+	if err != nil {
+		log.Fatalf("could not generate random tls cert: %s", err.Error())
+	}
+
+	s.TLSConfig = &tls.Config{
+		Certificates: []tls.Certificate{cert},
+	}
+
+	go s.ListenAndServeTLS("", "")
+
+	sig := <-sigCh
+
+	// Recreate and resign the CSR
+	crCopy := *cr
+	crCopy.ExtraExtensions = []pkix.Extension{{
+		Id:    api.OIDOperatorSignature,
+		Value: sig,
+	}}
+	return &crCopy, nil
+}
+
+func CreateCertificateRequest(cn string) (*ecdsa.PrivateKey, *x509.CertificateRequest, error) {
+	// Generate a new ECDSA private key
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Create a CSR template
+	cr := &x509.CertificateRequest{
+		Subject: pkix.Name{
+			CommonName: cn,
+		},
+		SignatureAlgorithm: x509.ECDSAWithSHA256,
+	}
+
+	return privateKey, cr, nil
+}
+
+func CreateCSR(privateKey *ecdsa.PrivateKey, cr *x509.CertificateRequest) ([]byte, interfaces.TLSCSR, error) {
+	// Create a CSR using the private key and template
+	csrDER, err := x509.CreateCertificateRequest(rand.Reader, cr, privateKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Encode the CSR in PEM format
+	csrPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER})
+
+	privateKeyBytes, err := x509.MarshalPKCS8PrivateKey(privateKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privateKeyBytes})
+	return keyPEM, interfaces.TLSCSR(csrPEM), nil
 }

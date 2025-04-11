@@ -36,8 +36,8 @@ func (m *MockRegistry) AddArtifact(data []byte) ([32]byte, *types.Transaction, e
 }
 
 // IdentityConfigMap mocks the IdentityConfigMap method
-func (m *MockRegistry) IdentityConfigMap(identity [32]byte) ([32]byte, error) {
-	args := m.Called(identity)
+func (m *MockRegistry) IdentityConfigMap(identity [32]byte, operator [20]byte) ([32]byte, error) {
+	args := m.Called(identity, operator)
 	return args.Get(0).([32]byte), args.Error(1)
 }
 

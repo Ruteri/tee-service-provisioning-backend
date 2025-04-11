@@ -111,9 +111,14 @@ func TestRegistryContract_ArtifactAndIdentity(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify artifact mapping
-	mappedArtifact, err := regClient.IdentityConfigMap(identity)
+	mappedArtifact, err := regClient.IdentityConfigMap(identity, auth.From)
 	assert.NoError(t, err)
 	assert.Equal(t, artifactHash, mappedArtifact)
+
+	// Verify artifact mapping returns empty for unauthorized operator
+	unmappedArtifact, err := regClient.IdentityConfigMap(identity, [20]byte{})
+	assert.Error(t, err)
+	assert.Equal(t, [32]byte{}, unmappedArtifact)
 
 	// Test removing identity mapping
 	_, err = regClient.RemoveConfigMapForIdentity(identity)
@@ -121,7 +126,7 @@ func TestRegistryContract_ArtifactAndIdentity(t *testing.T) {
 	backend.Commit()
 
 	// Verify identity no longer has an artifact mapping
-	_, err = regClient.IdentityConfigMap(identity)
+	_, err = regClient.IdentityConfigMap(identity, [20]byte{})
 	assert.Error(t, err)
 }
 

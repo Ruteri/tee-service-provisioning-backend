@@ -41,7 +41,7 @@ interface IRegistry {
     function MAAIdentity(MAAReport memory report) external view returns (bytes32);
 
     // Configuration mapping for identity
-    function getConfigForIdentity(bytes32 identity) external view returns (bytes32);
+    function getConfigForIdentity(bytes32 identity, address operator) external view returns (bytes32);
 
 	// Public instances — API and p2p bootstrap
 	function allInstanceDomainNames() external view returns (string[] memory);
@@ -207,7 +207,6 @@ contract Registry is AccessControl, Ownable, ReentrancyGuard, IRegistry {
         require(artifacts[artifactHash].length > 0, "Artifact does not exist");
         return artifacts[artifactHash];
     }
-        
 
     /**
      * @dev Calculate DCAP identity from a report
@@ -281,9 +280,15 @@ contract Registry is AccessControl, Ownable, ReentrancyGuard, IRegistry {
 
     /**
      * @dev Return config id for an identity
-     * @param identity The identity
+     * @param identity The TEE worklaod identity derived from instance measurements
+     * @param operator The operator's address, extracted from signature in CSR extensions
      */
-    function getConfigForIdentity(bytes32 identity) external view returns (bytes32) {
+    function getConfigForIdentity(bytes32 identity, address operator)
+        external
+        view
+        returns (bytes32)
+    {
+		require(hasRole(ROLE_OPERATOR, operator), "Operator not authorized");
 		require(identityConfigMap[identity] != bytes32(0), "Config not mapped");
 		return identityConfigMap[identity];
 	}
