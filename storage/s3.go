@@ -89,10 +89,10 @@ func NewS3Backend(bucketName, prefix, region, endpoint, accessKey, secretKey str
 	}
 
 	return &S3Backend{
-		client:      readClient,
-		writeClient: writeClient,
-		bucketName:  bucketName,
-		prefix:      strings.TrimSuffix(prefix, "/"),
+		client:         readClient,
+		writeClient:    writeClient,
+		bucketName:     bucketName,
+		prefix:         strings.TrimSuffix(prefix, "/"),
 		log:            log,
 		locationURI:    uri,
 		hasWriteAccess: hasWriteAccess,

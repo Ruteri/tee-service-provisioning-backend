@@ -1,4 +1,4 @@
-package handlers
+package provisioner
 
 import (
 	"context"
@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/ruteri/tee-service-provisioning-backend/api"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
@@ -72,6 +73,11 @@ func NewHandler(kms interfaces.KMS, storageFactory interfaces.StorageBackendFact
 		registryFactory: registryFactory,
 		log:             log,
 	}
+}
+
+func (h *Handler) RegisterRoutes(r chi.Router) {
+	r.Post("/api/attested/register/{contract_address}", h.HandleRegister)
+	r.Get("/api/public/app_metadata/{contract_address}", h.HandleAppMetadata)
 }
 
 // HandleRegister processes TEE instance registration requests.

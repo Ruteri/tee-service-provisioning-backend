@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/ruteri/tee-service-provisioning-backend/api"
-	"github.com/ruteri/tee-service-provisioning-backend/api/clients"
+	"github.com/ruteri/tee-service-provisioning-backend/api/provisioner"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/ruteri/tee-service-provisioning-backend/instanceutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
@@ -158,7 +158,7 @@ func NewProvisioner(cCtx *cli.Context) (*Provisioner, error) {
 
 	var registrationProvider api.RegistrationProvider
 	if !cCtx.Bool("debug-local-provider") {
-		registrationProvider = &clients.ProvisioningClient{
+		registrationProvider = &provisioner.ProvisioningClient{
 			ServerAddr:                cCtx.String("provisioning-server-addr"),
 			SetAttestationType:        cCtx.String("debug-set-attestation-type-header"),
 			SetAttestationMeasurement: cCtx.String("debug-set-attestation-measurement-header"),

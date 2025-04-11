@@ -1,4 +1,4 @@
-package clients
+package provisioner
 
 import (
 	"bytes"
@@ -12,8 +12,7 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-// ProvisioningClient implements RegistrationProvider for HTTP-based communication
-// with the TEE registry provisioning server.
+// ProvisioningClient implements RegistrationProvider and MetadataProvider with remote TEE registry provisioning server.
 type ProvisioningClient struct {
 	// ServerAddr is the base URL of the provisioning server
 	ServerAddr string

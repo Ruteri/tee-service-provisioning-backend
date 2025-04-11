@@ -26,21 +26,21 @@
 //
 // The OnchainRegistry interface defines the methods for interacting with the registry contract:
 //
-// type OnchainRegistry interface {
-//     GetPKI() (*AppPKI, error)
-//     ComputeDCAPIdentity(report *DCAPReport) ([32]byte, error)
-//     ComputeMAAIdentity(report *MAAReport) ([32]byte, error)
-//     GetArtifact(artifactHash [32]byte) ([]byte, error)
-//     IdentityConfigMap(identity [32]byte) ([32]byte, error)
-//     AddArtifact(data []byte) ([32]byte, *types.Transaction, error)
-//     SetConfigForDCAP(report *DCAPReport, artifactHash [32]byte) (*types.Transaction, error)
-//     SetConfigForMAA(report *MAAReport, artifactHash [32]byte) (*types.Transaction, error)
-//     AllStorageBackends() ([]string, error)
-//     AddStorageBackend(locationURI string) (*types.Transaction, error)
-//     RemoveStorageBackend(locationURI string) (*types.Transaction, error)
-//     AllInstanceDomainNames() ([]string, error)
-//     RegisterInstanceDomainName(domain string) (*types.Transaction, error)
-// }
+//	type OnchainRegistry interface {
+//	    GetPKI() (*AppPKI, error)
+//	    ComputeDCAPIdentity(report *DCAPReport) ([32]byte, error)
+//	    ComputeMAAIdentity(report *MAAReport) ([32]byte, error)
+//	    GetArtifact(artifactHash [32]byte) ([]byte, error)
+//	    IdentityConfigMap(identity [32]byte) ([32]byte, error)
+//	    AddArtifact(data []byte) ([32]byte, *types.Transaction, error)
+//	    SetConfigForDCAP(report *DCAPReport, artifactHash [32]byte) (*types.Transaction, error)
+//	    SetConfigForMAA(report *MAAReport, artifactHash [32]byte) (*types.Transaction, error)
+//	    AllStorageBackends() ([]string, error)
+//	    AddStorageBackend(locationURI string) (*types.Transaction, error)
+//	    RemoveStorageBackend(locationURI string) (*types.Transaction, error)
+//	    AllInstanceDomainNames() ([]string, error)
+//	    RegisterInstanceDomainName(domain string) (*types.Transaction, error)
+//	}
 //
 // The RegistryFactory interface creates OnchainRegistry instances for different contract addresses:
 //

@@ -1,4 +1,4 @@
-package handlers
+package shamirkms
 
 import (
 	"bytes"
@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/ruteri/tee-service-provisioning-backend/api/clients"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 	"github.com/ruteri/tee-service-provisioning-backend/kms"
@@ -62,13 +61,13 @@ func generateAdminKeyPairs(t *testing.T, n int) (map[string]*ecdsa.PrivateKey, m
 // createTestServer creates a test server with the admin handler
 func createTestServer(t *testing.T, handler *AdminHandler) *httptest.Server {
 	r := chi.NewRouter()
-	r.Mount("/admin", handler.AdminRouter())
+	handler.RegisterRoutes(r)
 	return httptest.NewServer(r)
 }
 
 // createSignedRequest creates a signed request for testing
 func createSignedRequest(t *testing.T, method, url string, body []byte, adminID string, privateKey *ecdsa.PrivateKey) *http.Request {
-	req, err := clients.CreateSignedAdminRequest(method, url, body, adminID, privateKey)
+	req, err := CreateSignedAdminRequest(method, url, body, adminID, privateKey)
 	require.NoError(t, err, "Failed to create signed request")
 	return req
 }
@@ -106,8 +105,9 @@ func TestAdminHandler_WaitForBootstrap_WithTimeout(t *testing.T) {
 	defer cancel()
 
 	// Wait should time out
-	err := handler.WaitForBootstrap(ctx)
+	kms, err := handler.WaitForBootstrap(ctx)
 	assert.Error(t, err, "WaitForBootstrap should time out")
+	assert.Nil(t, kms)
 	assert.Contains(t, err.Error(), "context deadline exceeded")
 }
 
@@ -120,6 +120,8 @@ func TestAdminHandler_WaitForBootstrap_Completion(t *testing.T) {
 	// Simulate completion in a separate goroutine
 	go func() {
 		time.Sleep(100 * time.Millisecond)
+		handler.state = StateComplete
+		handler.shamirKMS = &kms.ShamirKMS{}
 		close(handler.completeChan)
 	}()
 
@@ -128,8 +130,9 @@ func TestAdminHandler_WaitForBootstrap_Completion(t *testing.T) {
 	defer cancel()
 
 	// Wait should succeed
-	err := handler.WaitForBootstrap(ctx)
+	kms, err := handler.WaitForBootstrap(ctx)
 	assert.NoError(t, err, "WaitForBootstrap should succeed")
+	assert.NotNil(t, kms)
 }
 
 // Authentication tests

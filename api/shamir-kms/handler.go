@@ -5,7 +5,7 @@
 // using Shamir's Secret Sharing with a zero-trust distribution model.
 // Shares are individually encrypted for each admin using their public keys,
 // ensuring no admin can access shares intended for others.
-package handlers
+package shamirkms
 
 import (
 	"bytes"
@@ -136,14 +136,15 @@ func NewAdminHandler(log *slog.Logger, adminPubKeys map[string][]byte) *AdminHan
 //   - ctx: Context that can be used to cancel the wait
 //
 // Returns:
+//   - Configured ShamirKMS if bootstrap completed
 //   - Error if the context is cancelled before completion
 //   - nil if the bootstrap process completes successfully
-func (h *AdminHandler) WaitForBootstrap(ctx context.Context) error {
+func (h *AdminHandler) WaitForBootstrap(ctx context.Context) (*kms.ShamirKMS, error) {
 	select {
 	case <-h.completeChan:
-		return nil
+		return h.GetKMS(), nil
 	case <-ctx.Done():
-		return ctx.Err()
+		return nil, ctx.Err()
 	}
 }
 
@@ -156,8 +157,6 @@ func (h *AdminHandler) WaitForBootstrap(ctx context.Context) error {
 //   - The initialized ShamirKMS if bootstrap is complete
 //   - nil if bootstrap is not yet complete
 func (h *AdminHandler) GetKMS() *kms.ShamirKMS {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
 
 	if h.state != StateComplete {
 		return nil
@@ -165,7 +164,7 @@ func (h *AdminHandler) GetKMS() *kms.ShamirKMS {
 	return h.shamirKMS
 }
 
-// AdminRouter returns a configured HTTP router for the admin API.
+// RegisterRoutes configures HTTP router for the admin API.
 //
 // The router provides endpoints for:
 //   - Checking bootstrap status
@@ -173,19 +172,12 @@ func (h *AdminHandler) GetKMS() *kms.ShamirKMS {
 //   - Initiating recovery
 //   - Submitting shares during recovery
 //   - Retrieving shares (each admin can only get their own share)
-//
-// Returns:
-//   - A chi.Router that handles admin API requests
-func (h *AdminHandler) AdminRouter() chi.Router {
-	r := chi.NewRouter()
-
-	r.Get("/status", h.handleStatus)
-	r.Post("/init/generate", h.handleInitGenerate)
-	r.Post("/init/recover", h.handleInitRecover)
-	r.Post("/share", h.handleSubmitShare)
-	r.Get("/share", h.handleGetShare) // Endpoint for admins to retrieve their shares
-
-	return r
+func (h *AdminHandler) RegisterRoutes(r chi.Router) {
+	r.Get("/admin/status", h.handleStatus)
+	r.Post("/admin/init/generate", h.handleInitGenerate)
+	r.Post("/admin/init/recover", h.handleInitRecover)
+	r.Post("/admin/share", h.handleSubmitShare)
+	r.Get("/admin/share", h.handleGetShare) // Endpoint for admins to retrieve their shares
 }
 
 // handleStatus returns the current status of the bootstrap process.

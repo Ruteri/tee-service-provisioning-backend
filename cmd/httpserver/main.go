@@ -13,8 +13,10 @@ import (
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/google/uuid"
-	"github.com/ruteri/tee-service-provisioning-backend/api/handlers"
-	"github.com/ruteri/tee-service-provisioning-backend/api/servers"
+	"github.com/ruteri/tee-service-provisioning-backend/api"
+	"github.com/ruteri/tee-service-provisioning-backend/api/provisioner"
+	"github.com/ruteri/tee-service-provisioning-backend/api/server"
+	shamirkms "github.com/ruteri/tee-service-provisioning-backend/api/shamir-kms"
 	"github.com/ruteri/tee-service-provisioning-backend/common"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 	"github.com/ruteri/tee-service-provisioning-backend/kms"
@@ -45,19 +47,24 @@ var flags []cli.Flag = []cli.Flag{
 		Usage: "type of KMS to use: 'simple' or 'shamir'",
 	},
 	&cli.StringFlag{
-		Name:  "admin-keys-file",
-		Value: "",
-		Usage: "JSON file with admin public keys for ShamirKMS (required if kms-type is 'shamir')",
-	},
-	&cli.IntFlag{
-		Name:  "bootstrap-timeout",
-		Value: 300,
-		Usage: "timeout in seconds for bootstrap process when using ShamirKMS",
-	},
-	&cli.StringFlag{
 		Name:  "simple-kms-seed",
 		Value: "",
 		Usage: "hex-encoded 32-byte seed for SimpleKMS (required if kms-type is 'simple')",
+	},
+	&cli.StringFlag{
+		Name:  "shamirkms-admin-keys-file",
+		Value: "",
+		Usage: "JSON file with admin public keys for ShamirKMS (required if kms-type is 'shamir')",
+	},
+	&cli.StringFlag{
+		Name:  "shamirkms-listen-addr",
+		Value: "127.0.0.1:8081",
+		Usage: "address to listen on for API",
+	},
+	&cli.IntFlag{
+		Name:  "shamirkms-bootstrap-timeout",
+		Value: 86400,
+		Usage: "timeout in seconds for bootstrap process when using ShamirKMS",
 	},
 	&cli.StringFlag{
 		Name:  "remote-attestation-provider",
@@ -104,11 +111,12 @@ func main() {
 			// Parse basic configuration
 			rpcAddress := cCtx.String("rpc-addr")
 			listenAddr := cCtx.String("listen-addr")
+			shamirkmsListenAddr := cCtx.String("shamirkms-listen-addr")
 			metricsAddr := cCtx.String("metrics-addr")
 			kmsType := cCtx.String("kms-type")
 			kmsRemoteAttestationProvider := cCtx.String("remote-attestation-provider")
-			adminKeysFile := cCtx.String("admin-keys-file")
-			bootstrapTimeout := cCtx.Int("bootstrap-timeout")
+			adminKeysFile := cCtx.String("shamirkms-admin-keys-file")
+			bootstrapTimeout := cCtx.Int("shamirkms-bootstrap-timeout")
 			simpleKMSSeed := cCtx.String("simple-kms-seed")
 			logJSON := cCtx.Bool("log-json")
 			logDebug := cCtx.Bool("log-debug")
@@ -143,7 +151,7 @@ func main() {
 			storageFactory := storage.NewStorageBackendFactory(logger, registryFactory)
 
 			// Set up the base HTTP server config
-			cfg := &servers.HTTPServerConfig{
+			cfg := &api.HTTPServerConfig{
 				ListenAddr:               listenAddr,
 				MetricsAddr:              metricsAddr,
 				Log:                      logger,
@@ -156,7 +164,6 @@ func main() {
 
 			// Handle KMS initialization based on type
 			var kmsImpl interfaces.KMS
-			var server *servers.Server
 
 			switch kmsType {
 			case "simple":
@@ -185,19 +192,6 @@ func main() {
 					simpleKms = simpleKms.WithAttestationProvider(&kms.RemoteAttestationProvider{Address: kmsRemoteAttestationProvider})
 				}
 				kmsImpl = simpleKms
-
-				logger.Info("SimpleKMS initialized successfully")
-
-				// Create handler with the initialized KMS
-				handler := handlers.NewHandler(kmsImpl, storageFactory, registryFactory, logger)
-
-				// Create server with registry handler
-				server, err = servers.New(cfg, handler, kmsImpl)
-				if err != nil {
-					logger.Error("Failed to create server", "err", err)
-					return err
-				}
-
 			case "shamir":
 				logger.Info("Using ShamirKMS with admin bootstrap")
 
@@ -216,7 +210,7 @@ func main() {
 				}
 				defer adminKeysData.Close()
 
-				adminKeys, err := handlers.LoadAdminKeys(adminKeysData)
+				adminKeys, err := shamirkms.LoadAdminKeys(adminKeysData)
 				if err != nil {
 					logger.Error("Failed to load admin keys", "err", err)
 					return err
@@ -224,22 +218,19 @@ func main() {
 
 				logger.Info("Admin keys loaded successfully", "count", len(adminKeys))
 
-				// Configure server for bootstrap mode
-				cfg.EnableAdmin = true
-				cfg.AdminKeys = adminKeys
-				cfg.BootstrapMode = true
+				skmsServerCfg := *cfg
+				skmsServerCfg.ListenAddr = shamirkmsListenAddr
+				adminHandler := shamirkms.NewAdminHandler(skmsServerCfg.Log, adminKeys)
 
-				// Create server in bootstrap mode (registry handler will be added later)
-				// We pass nil for both handler and KMS since they'll be set after bootstrap
-				server, err = servers.New(cfg, nil, nil)
+				// Create base server with the admin handler as a route registrar
+				baseServer, err := server.New(&skmsServerCfg, adminHandler)
 				if err != nil {
-					logger.Error("Failed to create server", "err", err)
-					return err
+					return fmt.Errorf("could not create base server for kms admin: %w", err)
 				}
 
 				// Start server in bootstrap mode (only admin API will be available)
 				logger.Info("Starting server in bootstrap mode")
-				server.RunInBackground()
+				baseServer.RunInBackground()
 
 				// Wait for bootstrap to complete
 				logger.Info("Waiting for KMS bootstrap to complete...",
@@ -250,42 +241,35 @@ func main() {
 				defer cancel()
 
 				// This blocks until bootstrap is complete or timeout occurs
-				shamirKMS, err := server.WaitForBootstrap(ctx)
+				shamirKMS, err := adminHandler.WaitForBootstrap(ctx)
 				if err != nil {
 					logger.Error("KMS bootstrap failed", "err", err)
 					return err
 				}
-
-				if kmsRemoteAttestationProvider != "" {
-					shamirKMS.SetAttestationProvider(&kms.RemoteAttestationProvider{Address: kmsRemoteAttestationProvider})
-				}
+				baseServer.Shutdown()
+				kmsImpl = shamirKMS.SimpleKMS()
 
 				// Now that KMS is bootstrapped, create the registry handler
 				logger.Info("KMS bootstrap completed successfully, creating registry handler")
-				handler := handlers.NewHandler(shamirKMS, storageFactory, registryFactory, logger)
-
-				// Update the server with the new handler
-				server.SetRegistryHandler(handler)
-
-				// Set the KMS implementation for the rest of the code
-				kmsImpl = shamirKMS
-
-				logger.Info("Registry handler enabled, server is now fully operational")
-
-				// Note: We don't need to call RunInBackground here because it was already
-				// started during the bootstrap phase
 
 			default:
 				logger.Error("Invalid kms-type", "type", kmsType)
 				return fmt.Errorf("invalid kms-type: %s", kmsType)
 			}
 
-			// If we're using SimpleKMS, start the server now
-			// (For ShamirKMS, the server is already running from the bootstrap phase)
-			if kmsType == "simple" {
-				logger.Info("Starting server")
-				server.RunInBackground()
+			logger.Info("SimpleKMS initialized successfully")
+
+			// Create handler with the initialized KMS
+			handler := provisioner.NewHandler(kmsImpl, storageFactory, registryFactory, logger)
+
+			// Create server with registry handler
+			server, err := server.New(cfg, handler)
+			if err != nil {
+				logger.Error("Failed to create server", "err", err)
+				return err
 			}
+
+			server.RunInBackground()
 
 			// Wait for termination signal
 			exit := make(chan os.Signal, 1)

@@ -1,4 +1,4 @@
-package clients
+package shamirkms
 
 import (
 	"bytes"
@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ruteri/tee-service-provisioning-backend/api"
+	"github.com/ruteri/tee-service-provisioning-backend/kms"
 )
 
 // AdminClient provides methods for interacting with the admin API.
@@ -58,7 +59,7 @@ func NewAdminClient(baseURL, adminID string, privateKey *ecdsa.PrivateKey, timeo
 //   - Status string (e.g., "initial", "recovering", "complete")
 //   - Error if the request fails
 func (c *AdminClient) GetStatus() (string, error) {
-	url := fmt.Sprintf("%s/status", c.baseURL)
+	url := fmt.Sprintf("%s/admin/status", c.baseURL)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -97,7 +98,7 @@ func (c *AdminClient) GetStatus() (string, error) {
 //   - Map of share indexes to base64-encoded shares
 //   - Error if the request fails
 func (c *AdminClient) InitGenerate(threshold, totalShares int) (map[int]string, error) {
-	url := fmt.Sprintf("%s/init/generate", c.baseURL)
+	url := fmt.Sprintf("%s/admin/init/generate", c.baseURL)
 
 	reqBody := map[string]interface{}{
 		"threshold":    threshold,
@@ -154,7 +155,7 @@ func (c *AdminClient) InitGenerate(threshold, totalShares int) (map[int]string, 
 // Returns:
 //   - Error if the request fails
 func (c *AdminClient) InitRecover(threshold int) error {
-	url := fmt.Sprintf("%s/init/recover", c.baseURL)
+	url := fmt.Sprintf("%s/admin/init/recover", c.baseURL)
 
 	reqBody := map[string]interface{}{
 		"threshold": threshold,
@@ -194,7 +195,7 @@ func (c *AdminClient) InitRecover(threshold int) error {
 // Returns:
 //   - Error if the request fails
 func (c *AdminClient) SubmitShare(shareIndex int, shareBase64 string, signature []byte) error {
-	url := fmt.Sprintf("%s/share", c.baseURL)
+	url := fmt.Sprintf("%s/admin/share", c.baseURL)
 
 	// Decode the share to sign it if no signature provided
 	share, err := base64.StdEncoding.DecodeString(shareBase64)
@@ -204,8 +205,7 @@ func (c *AdminClient) SubmitShare(shareIndex int, shareBase64 string, signature 
 
 	// If no signature provided, create one
 	if signature == nil {
-		hash := sha256.Sum256(share)
-		signature, err = ecdsa.SignASN1(rand.Reader, c.privateKey, hash[:])
+		signature, err = kms.SignShare(share, c.privateKey)
 		if err != nil {
 			return fmt.Errorf("failed to sign share: %w", err)
 		}
@@ -249,7 +249,7 @@ func (c *AdminClient) SubmitShare(shareIndex int, shareBase64 string, signature 
 //   - encrypted share
 //   - Error if the request fails
 func (c *AdminClient) FetchShare() (api.AdminGetShareResponse, error) {
-	url := fmt.Sprintf("%s/share", c.baseURL)
+	url := fmt.Sprintf("%s/admin/share", c.baseURL)
 
 	req, err := CreateSignedAdminRequest("GET", url, nil, c.adminID, c.privateKey)
 	if err != nil {

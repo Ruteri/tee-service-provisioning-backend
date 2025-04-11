@@ -40,10 +40,10 @@ func NewIPFSBackend(host, port string, useGateway bool, timeout string, log *slo
 	}
 
 	return &IPFSBackend{
-		shell:      shell.NewShell(apiURL),
-		host:       host,
-		port:       port,
-		useGateway: useGateway,
+		shell:       shell.NewShell(apiURL),
+		host:        host,
+		port:        port,
+		useGateway:  useGateway,
 		log:         log,
 		locationURI: uri,
 	}, nil

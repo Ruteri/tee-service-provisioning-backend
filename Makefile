@@ -103,4 +103,4 @@ bindings: ## Generate golang bindings for the contract
 .PHONY: context
 context: ## Generate godoc for all files
 	# Needs `go install github.com/ruteri/gocontext@latest`
-	gocontext -verbose
+	go run ../gocontext/main.go -verbose -exclude bindings/registry,lib,metrics -include interfaces -clean

@@ -15,15 +15,14 @@ import (
 	"os"
 
 	"github.com/ruteri/tee-service-provisioning-backend/api"
-	"github.com/ruteri/tee-service-provisioning-backend/api/clients"
-	"github.com/ruteri/tee-service-provisioning-backend/api/handlers"
+	shamirkms "github.com/ruteri/tee-service-provisioning-backend/api/shamir-kms"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/urfave/cli/v2"
 )
 
 var flagProvisioningServer *cli.StringFlag = &cli.StringFlag{
 	Name:  "provisioning-server-addr",
-	Value: "http://127.0.0.1:8080/admin",
+	Value: "http://127.0.0.1:8081",
 	Usage: "Provisioning server address to request",
 }
 var flagAdminPrivkey *cli.StringFlag = &cli.StringFlag{
@@ -72,7 +71,7 @@ func main() {
 				},
 				Action: func(cCtx *cli.Context) error {
 					baseURL := cCtx.String(flagProvisioningServer.Name)
-					adminClient := clients.NewAdminClient(baseURL, "", nil)
+					adminClient := shamirkms.NewAdminClient(baseURL, "", nil)
 					status, err := adminClient.GetStatus()
 					if err != nil {
 						return err
@@ -130,7 +129,7 @@ func main() {
 				},
 			},
 			&cli.Command{
-				Name:        "generate-shamir-config",
+				Name:        "generate-config",
 				Usage:       "",
 				Description: "",
 				Flags: []cli.Flag{
@@ -140,7 +139,7 @@ func main() {
 					},
 				},
 				Action: func(cCtx *cli.Context) error {
-					config := handlers.ShamirAdminsConfig{}
+					config := shamirkms.ShamirAdminsConfig{}
 
 					for _, pubkey := range cCtx.StringSlice("admin-pubkey-files") {
 						publicKeyPEM, err := os.ReadFile(pubkey)
@@ -149,7 +148,7 @@ func main() {
 						}
 
 						pubkeyHash := sha256.Sum256(publicKeyPEM)
-						config.Admins = append(config.Admins, handlers.ShamirAdminMetadata{
+						config.Admins = append(config.Admins, shamirkms.ShamirAdminMetadata{
 							ID:     hex.EncodeToString(pubkeyHash[:]),
 							PubKey: string(publicKeyPEM),
 						})
@@ -168,14 +167,13 @@ func main() {
 				},
 			},
 			&cli.Command{
-				Name:        "init-generate-shares",
+				Name:        "init-generate",
 				Usage:       "",
 				Description: "",
 				Flags: []cli.Flag{
 					flagProvisioningServer,
 					flagAdminPrivkey,
 					flagAdminPubkey,
-					flagShamirShare,
 					flagShamirTotal,
 					flagShamirThreshold,
 				},
@@ -203,7 +201,7 @@ func main() {
 					sharesTotal := cCtx.Int(flagShamirTotal.Name)
 					sharesThreshold := cCtx.Int(flagShamirThreshold.Name)
 
-					adminClient := clients.NewAdminClient(baseURL, adminID, privateKey)
+					adminClient := shamirkms.NewAdminClient(baseURL, adminID, privateKey)
 					_, err = adminClient.InitGenerate(sharesThreshold, sharesTotal)
 					return err
 				},
@@ -216,7 +214,6 @@ func main() {
 					flagProvisioningServer,
 					flagAdminPrivkey,
 					flagAdminPubkey,
-					flagShamirShare,
 					flagShamirThreshold,
 				},
 				Action: func(cCtx *cli.Context) error {
@@ -242,12 +239,12 @@ func main() {
 
 					sharesThreshold := cCtx.Int(flagShamirThreshold.Name)
 
-					adminClient := clients.NewAdminClient(baseURL, adminID, privateKey)
+					adminClient := shamirkms.NewAdminClient(baseURL, adminID, privateKey)
 					return adminClient.InitRecover(sharesThreshold)
 				},
 			},
 			&cli.Command{
-				Name:        "fetch-admin-share",
+				Name:        "fetch-share",
 				Usage:       "",
 				Description: "",
 				Flags: []cli.Flag{
@@ -277,7 +274,7 @@ func main() {
 						return err
 					}
 
-					adminClient := clients.NewAdminClient(baseURL, adminID, privateKey)
+					adminClient := shamirkms.NewAdminClient(baseURL, adminID, privateKey)
 					shareResponse, err := adminClient.FetchShare()
 					if err != nil {
 						return err
@@ -292,7 +289,7 @@ func main() {
 				},
 			},
 			&cli.Command{
-				Name:        "submit-admin-share",
+				Name:        "submit-share",
 				Usage:       "",
 				Description: "",
 				Flags: []cli.Flag{
@@ -343,7 +340,7 @@ func main() {
 						return err
 					}
 
-					adminClient := clients.NewAdminClient(baseURL, adminID, privateKey)
+					adminClient := shamirkms.NewAdminClient(baseURL, adminID, privateKey)
 					err = adminClient.SubmitShare(shareData.ShareIndex, base64.StdEncoding.EncodeToString(rawShare), nil)
 					if err != nil {
 						return err

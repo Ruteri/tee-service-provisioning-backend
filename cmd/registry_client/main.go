@@ -8,7 +8,7 @@ import (
 	"os"
 
 	"github.com/ruteri/tee-service-provisioning-backend/api"
-	"github.com/ruteri/tee-service-provisioning-backend/api/clients"
+	"github.com/ruteri/tee-service-provisioning-backend/api/provisioner"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 	"github.com/urfave/cli/v2"
@@ -102,7 +102,7 @@ func NewClientConfig(cCtx *cli.Context) (*Client, error) {
 		return nil, fmt.Errorf("could not parse app contract address: %w", err)
 	}
 
-	registrationProvider := &clients.ProvisioningClient{
+	registrationProvider := &provisioner.ProvisioningClient{
 		ServerAddr:                cCtx.String(flagServerAddr.Name),
 		SetAttestationType:        cCtx.String(flagAttsetationType.Name),
 		SetAttestationMeasurement: cCtx.String(flagAttsetationType.Name),
