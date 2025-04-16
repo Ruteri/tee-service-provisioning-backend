@@ -16,14 +16,6 @@ import (
 type ProvisioningClient struct {
 	// ServerAddr is the base URL of the provisioning server
 	ServerAddr string
-
-	// SetAttestationType is used to set the attestation type header
-	// This is primarily for testing/development; in production it's derived from the TEE
-	SetAttestationType string
-
-	// SetAttestationMeasurement is used to set the attestation measurement header
-	// This is primarily for testing/development; in production it's derived from the TEE
-	SetAttestationMeasurement string
 }
 
 // Register sends a CSR to the provisioning server to register the TEE instance.
@@ -36,13 +28,6 @@ func (p *ProvisioningClient) Register(app interfaces.ContractAddress, csr []byte
 	}
 
 	registrationReq.Header.Set("Content-Type", "application/octet-stream")
-	if p.SetAttestationType != "" {
-		registrationReq.Header.Set(api.AttestationTypeHeader, p.SetAttestationType)
-	}
-	if p.SetAttestationMeasurement != "" {
-		registrationReq.Header.Set(api.MeasurementHeader, p.SetAttestationMeasurement)
-	}
-
 	registrationResp, err := http.DefaultClient.Do(registrationReq)
 	if err != nil {
 		return nil, fmt.Errorf("could not request registration endpoint: %w", err)
@@ -72,12 +57,6 @@ func (p *ProvisioningClient) GetAppMetadata(app interfaces.ContractAddress) (*ap
 	}
 
 	req.Header.Set("Content-Type", "application/octet-stream")
-	if p.SetAttestationType != "" {
-		req.Header.Set(api.AttestationTypeHeader, p.SetAttestationType)
-	}
-	if p.SetAttestationMeasurement != "" {
-		req.Header.Set(api.MeasurementHeader, p.SetAttestationMeasurement)
-	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

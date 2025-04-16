@@ -20,6 +20,7 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+// CLI flag definitions for the admin client commands
 var flagProvisioningServer *cli.StringFlag = &cli.StringFlag{
 	Name:  "provisioning-server-addr",
 	Value: "http://127.0.0.1:8081",
@@ -56,6 +57,7 @@ var flagShamirTotal *cli.IntFlag = &cli.IntFlag{
 	Value: 2,
 }
 
+// main initializes and runs the admin CLI application with all supported commands
 func main() {
 	app := &cli.App{
 		Name:           "admin client",

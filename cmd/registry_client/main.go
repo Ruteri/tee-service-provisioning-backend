@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -12,10 +11,6 @@ import (
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 	"github.com/urfave/cli/v2"
-
-	tdx_abi "github.com/google/go-tdx-guest/abi"
-	tdx_pb "github.com/google/go-tdx-guest/proto/tdx"
-	"github.com/google/go-tdx-guest/verify"
 )
 
 var flagServerAddr *cli.StringFlag = &cli.StringFlag{
@@ -28,13 +23,9 @@ var flagAppAddr *cli.StringFlag = &cli.StringFlag{
 	Required: true,
 	Usage:    "Application governance contract address to request provisioning for. 40-char hex string with no 0x prefix",
 }
-var flagAttsetationType *cli.StringFlag = &cli.StringFlag{
-	Name:  "debug-set-attestation-type-header",
-	Usage: "If provided the provisioner will set the attestation type header",
-}
-var flagAttsetationMeasurement *cli.StringFlag = &cli.StringFlag{
-	Name:  "debug-set-attestation-measurement-header",
-	Usage: "If provided the provisioner will set the attestation measurement header",
+var flagRemoteAttestationProviderAddr *cli.StringFlag = &cli.StringFlag{
+	Name:  "debug-remote-attestation-provider",
+	Usage: "If provided the client will request attestation from a remote server",
 }
 
 const usage string = ``
@@ -53,8 +44,7 @@ func main() {
 				Usage:       "",
 				Description: "",
 				Flags: []cli.Flag{
-					flagAttsetationType,
-					flagAttsetationMeasurement,
+					flagRemoteAttestationProviderAddr,
 				},
 				Action: func(cCtx *cli.Context) error {
 					c, err := NewClientConfig(cCtx)
@@ -69,8 +59,6 @@ func main() {
 				Usage:       "",
 				Description: "",
 				Flags: []cli.Flag{
-					flagAttsetationType,
-					flagAttsetationMeasurement,
 				},
 				Action: func(cCtx *cli.Context) error {
 					c, err := NewClientConfig(cCtx)
@@ -90,7 +78,8 @@ func main() {
 
 type Client struct {
 	AppContract interfaces.ContractAddress
-	Provider    interface {
+	AttestationProvider cryptoutils.AttestationProvider
+	RegistrationProvider    interface {
 		api.MetadataProvider
 		api.RegistrationProvider
 	}
@@ -104,23 +93,37 @@ func NewClientConfig(cCtx *cli.Context) (*Client, error) {
 
 	registrationProvider := &provisioner.ProvisioningClient{
 		ServerAddr:                cCtx.String(flagServerAddr.Name),
-		SetAttestationType:        cCtx.String(flagAttsetationType.Name),
-		SetAttestationMeasurement: cCtx.String(flagAttsetationType.Name),
+	}
+
+	var attestationProvider cryptoutils.AttestationProvider
+	if cCtx.String(flagRemoteAttestationProviderAddr.Name) != "" {
+		attestationProvider = &cryptoutils.RemoteAttestationProvider{Address: cCtx.String(flagRemoteAttestationProviderAddr.Name)}
+	} else {
+		attestationProvider, err = cryptoutils.DiscoverAttestation()
+		if err != nil {
+			return nil, fmt.Errorf("no suitable attestation provider: %w", err)
+		}
 	}
 
 	return &Client{
 		AppContract: appContract,
-		Provider:    registrationProvider,
+		RegistrationProvider:    registrationProvider,
+		AttestationProvider: attestationProvider,
 	}, nil
 }
 
 func (c *Client) Register() error {
-	_, csr, err := cryptoutils.CreateCSRWithRandomKey(string(interfaces.NewAppCommonName(c.AppContract)))
+	pkPEM, csr, err := cryptoutils.CreateCSRWithRandomKey(string(interfaces.NewAppCommonName(c.AppContract)))
 	if err != nil {
 		return fmt.Errorf("could not create instance CSR: %w", err)
 	}
 
-	parsedResponse, err := c.Provider.Register(c.AppContract, csr)
+	attestedCsr, err := cryptoutils.AttestPEMCertificateRequest(c.AttestationProvider, pkPEM, csr)
+	if err != nil {
+		return fmt.Errorf("could not attest instance CSR: %w", err)
+	}
+
+	parsedResponse, err := c.RegistrationProvider.Register(c.AppContract, attestedCsr)
 	if err != nil {
 		return fmt.Errorf("registration failed: %w", err)
 	}
@@ -130,52 +133,19 @@ func (c *Client) Register() error {
 }
 
 func (c *Client) GetAppMetadata() error {
-	parsedResponse, err := c.Provider.GetAppMetadata(c.AppContract)
+	parsedResponse, err := c.RegistrationProvider.GetAppMetadata(c.AppContract)
 	if err != nil {
 		return fmt.Errorf("metadata request failed: %w", err)
 	}
 	encodedResp, _ := json.Marshal(parsedResponse)
 	fmt.Println(string(encodedResp))
 
-	err = VerifyDCAPAttestation(c.AppContract, parsedResponse)
+	expectedReportData := api.ReportData(c.AppContract, parsedResponse.CACert, parsedResponse.AppPubkey)
+
+	_, err = cryptoutils.VerifyDCAPAttestation(expectedReportData, parsedResponse.Attestation)
 	if err != nil {
 		return fmt.Errorf("metadata attestation verification failed: %w", err)
 	}
-
-	return nil
-}
-
-func VerifyDCAPAttestation(contractAddr interfaces.ContractAddress, resp *api.MetadataResponse) error {
-	protoQuote, err := tdx_abi.QuoteToProto(resp.Attestation)
-	if err != nil {
-		return fmt.Errorf("could not parse quote: %w", err)
-	}
-
-	v4Quote, err := func() (*tdx_pb.QuoteV4, error) {
-		switch q := protoQuote.(type) {
-		case *tdx_pb.QuoteV4:
-			return q, nil
-		default:
-			return nil, fmt.Errorf("unsupported quote type: %T", q)
-		}
-	}()
-	if err != nil {
-		return err
-	}
-
-	options := verify.DefaultOptions()
-	// TODO: fetch collateral before verifying to distinguish the error better
-	err = verify.TdxQuote(protoQuote, options)
-	if err != nil {
-		return fmt.Errorf("quote verification failed: %w", err)
-	}
-
-	expectedReportData := api.ReportData(contractAddr, resp.CACert, resp.AppPubkey)
-	if !bytes.Equal(v4Quote.TdQuoteBody.ReportData, expectedReportData[:]) {
-		return fmt.Errorf("invalid report data %x, expected %x", v4Quote.TdQuoteBody.ReportData, expectedReportData[:])
-	}
-
-	fmt.Println("attestation validation successful")
 
 	return nil
 }

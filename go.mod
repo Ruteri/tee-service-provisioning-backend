@@ -60,6 +60,7 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.1 // indirect
 	github.com/golang/snappy v0.0.5-0.20220116011046-fa5810519dcb // indirect
+	github.com/google/go-configfs-tsm v0.2.2 // indirect
 	github.com/google/go-tdx-guest v0.3.1 // indirect
 	github.com/google/logger v1.1.1 // indirect
 	github.com/gorilla/websocket v1.5.1 // indirect

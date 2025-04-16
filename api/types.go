@@ -5,6 +5,7 @@ import (
 	"encoding/asn1"
 	"fmt"
 
+	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
 
@@ -16,10 +17,6 @@ const (
 	// MeasurementHeader contains a JSON-encoded map of measurement values.
 	// Format: {"0":"00", "1":"01", ...} mapping register index to hex value.
 	MeasurementHeader = "X-Flashbots-Measurement"
-
-	// Supported attestation types
-	AzureTDX = "azure-tdx" // Azure confidential computing with TDX
-	QemuTDX  = "qemu-tdx"  // Any DCAP-compatible TDX implementation
 )
 
 // RegistrationProvider defines the interface for TEE instance registration services.
@@ -91,9 +88,9 @@ var OIDOperatorSignature asn1.ObjectIdentifier = asn1.ObjectIdentifier{1, 3, 6, 
 // Returns:
 //   - The computed identity hash
 //   - Error if attestation type is unsupported or computation fails
-func AttestationToIdentity(attestationType string, measurements map[int]string, registry interfaces.OnchainRegistry) ([32]byte, error) {
+func AttestationToIdentity(attestationType string, measurements map[int][]byte, registry interfaces.OnchainRegistry) ([32]byte, error) {
 	switch attestationType {
-	case AzureTDX:
+	case cryptoutils.AzureTDX:
 		// For MAA the measurements are simply the PCRs encoded as map[uint32][]byte
 		maaReport := &interfaces.MAAReport{}
 		for i, v := range measurements {
@@ -104,7 +101,7 @@ func AttestationToIdentity(attestationType string, measurements map[int]string, 
 		}
 		identity, err := registry.ComputeMAAIdentity(maaReport)
 		return identity, err
-	case QemuTDX:
+	case cryptoutils.DCAP:
 		// For DCAP the measurements are RTMRs and MRTD encoded as map[uint32][]byte
 		dcapReport, err := interfaces.DCAPReportFromMeasurement(measurements)
 		if err != nil {

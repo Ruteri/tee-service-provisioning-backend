@@ -136,16 +136,12 @@ type DCAPReport struct {
 	MrConfigOwner [48]byte
 }
 
-func DCAPReportFromMeasurement(measurements map[int]string) (*DCAPReport, error) {
+func DCAPReportFromMeasurement(measurements map[int][]byte) (*DCAPReport, error) {
 	dcapReport := &DCAPReport{}
 
-	mrtdHex, ok := measurements[0]
+	mrtd, ok := measurements[0]
 	if !ok {
 		return nil, fmt.Errorf("mrtd missing")
-	}
-	mrtd, err := hex.DecodeString(mrtdHex)
-	if err != nil {
-		return nil, fmt.Errorf("could not decode mrtd measurement value %x: %w", mrtdHex, err)
 	}
 	if len(mrtd) != 48 {
 		return nil, fmt.Errorf("invalid mrtd measurement value %x", mrtd)
@@ -154,13 +150,9 @@ func DCAPReportFromMeasurement(measurements map[int]string) (*DCAPReport, error)
 	copy(dcapReport.MrTd[:], mrtd)
 
 	for rtmr := range 3 {
-		rtmrHex, ok := measurements[1+rtmr]
+		rtmrBytes, ok := measurements[1+rtmr]
 		if !ok {
 			return nil, fmt.Errorf("rtmr %d missing", rtmr)
-		}
-		rtmrBytes, err := hex.DecodeString(rtmrHex)
-		if err != nil {
-			return nil, fmt.Errorf("could not decode rtmr %d measurement value %x: %w", rtmr, rtmrHex, err)
 		}
 		if len(rtmrBytes) != 48 {
 			return nil, fmt.Errorf("invalid rtmr %d value %x", rtmr, rtmrBytes)

@@ -1,6 +1,7 @@
 package provisioner
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -86,58 +87,26 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 // and provides cryptographic materials and configuration if authorized.
 //
 // URL format: POST /api/attested/register/{contract_address}
-// Required headers:
-//   - X-Flashbots-Attestation-Type: Type of attestation
-//   - X-Flashbots-Measurement: JSON-encoded measurement values
 //
 // Request body: TLS Certificate Signing Request (CSR) in PEM format
 // The CSR may optionally include an operator signature as an X.509 extension
 // with OID api.OIDOperatorSignature. This signature provides additional
 // authorization from an approved operator.
 //
+// Both CSR and client certificate must be attested, their pubkey must be the same, and their measurements must match
+//
 // Response: JSON, see api.RegistrationResponse
 //
 // The handler decrypts any pre-encrypted secrets referenced in the configuration template
 // before sending the response, ensuring the TEE instance receives plaintext secrets.
 func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
-	// Parse attestation type from header
-	attestationType := r.Header.Get(api.AttestationTypeHeader)
-	if attestationType == "" {
-		http.Error(w, "Missing attestation type header", http.StatusBadRequest)
-		return
-	}
-
-	// Parse measurements from header
-	measurementsJSON := r.Header.Get(api.MeasurementHeader)
-	if measurementsJSON == "" {
-		http.Error(w, "Missing measurements header", http.StatusBadRequest)
-		return
-	}
-
-	// Parse measurements JSON to map
-	var measurements map[int]string
-	if err := json.Unmarshal([]byte(measurementsJSON), &measurements); err != nil {
-		h.log.Error("Failed to parse measurements JSON", "err", err, "json", measurementsJSON)
-		http.Error(w, "Invalid measurements format", http.StatusBadRequest)
-		return
-	}
-
-	contractAddrHex := r.PathValue("contract_address")
-	if contractAddrHex == "" {
-		http.Error(w, "Missing contract address in URL", http.StatusBadRequest)
-		return
-	}
-
-	// Parse contract address from hex
-	contractAddrBytes, err := hex.DecodeString(contractAddrHex)
-	if err != nil || len(contractAddrBytes) != 20 {
-		h.log.Error("Invalid contract address", "err", err, "address", contractAddrHex)
+	// TODO: note that contract could be a part of the attestation as well
+	contractAddr, err := interfaces.NewContractAddressFromHex(r.PathValue("contract_address"))
+	if err != nil {
+		h.log.Error("Invalid contract address", "err", err, "address", r.PathValue("contract_address"))
 		http.Error(w, "Invalid contract address format", http.StatusBadRequest)
 		return
 	}
-
-	var contractAddr interfaces.ContractAddress
-	copy(contractAddr[:], contractAddrBytes)
 
 	// Read CSR from request body
 	csr, err := io.ReadAll(r.Body)
@@ -153,11 +122,10 @@ func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Process the registration
-	appPrivkey, tlsCert, instanceConfig, err := h.handleRegister(r.Context(), attestationType, measurements, contractAddr, csr)
+	appPrivkey, tlsCert, instanceConfig, err := h.handleRegister(r.Context(), r.TLS.PeerCertificates[0], contractAddr, csr)
 	if err != nil {
 		h.log.Error("Registration failed", "err", err,
-			"attestationType", attestationType,
-			"contractAddress", contractAddrHex)
+			"contractAddress", contractAddr.String())
 
 		// Return appropriate status code based on error type
 		if strings.Contains(err.Error(), "invalid") {
@@ -269,7 +237,39 @@ func (h *Handler) HandleAppMetadata(w http.ResponseWriter, r *http.Request) {
 //   - Signed TLS certificate
 //   - Instance configuration
 //   - Error if registration fails
-func (h *Handler) handleRegister(ctx context.Context, attestationType string, measurements map[int]string, contractAddr interfaces.ContractAddress, csr interfaces.TLSCSR) (interfaces.AppPrivkey, interfaces.TLSCert, interfaces.InstanceConfig, error) {
+func (h *Handler) handleRegister(ctx context.Context, clientCert *x509.Certificate, contractAddr interfaces.ContractAddress, csr cryptoutils.TLSCSR) (interfaces.AppPrivkey, interfaces.TLSCert, interfaces.InstanceConfig, error) {
+	// Parse attestation type from header
+	attestationType, measurements, err := cryptoutils.VerifyCertificateAttestation(clientCert)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("could not verify client cert attestation: %w", err)
+	}
+
+	// Parse CSR to extract any operator signature extensions
+	parsedCsr, err := csr.GetX509CSR()
+	if err != nil {
+		h.log.Error("Failed to parse csr", "err", err)
+		return nil, nil, nil, fmt.Errorf("csr parsing error: %w", err)
+	}
+
+	if !bytes.Equal(parsedCsr.RawSubjectPublicKeyInfo, clientCert.RawSubjectPublicKeyInfo) {
+		return nil, nil, nil, fmt.Errorf("mismatched client and csr public keys")
+	}
+
+	csrAttestationType, csrMeasurements, err := cryptoutils.VerifyCertificateRequestAttestation(parsedCsr)
+	if csrAttestationType != attestationType {
+		return nil, nil, nil, fmt.Errorf("mismatched attestation type in request (%s) and csr (%s)", attestationType, csrAttestationType)
+	}
+	if len(csrMeasurements) != len(measurements) {
+		return nil, nil, nil, fmt.Errorf("mismatched measurements\nreq: %v\ncsr: %v", measurements, csrMeasurements)
+	}
+	for i, v := range measurements {
+		if !bytes.Equal(csrMeasurements[i], v) {
+			return nil, nil, nil, fmt.Errorf("mismatched measurements\nreq: %v\ncsr: %v", measurements, csrMeasurements)
+		}
+	}
+
+	// TODO: also verify all extensions match (including the raw attestation)
+
 	// Get the registry for this contract
 	registry, err := h.registryFactory.RegistryFor(contractAddr)
 	if err != nil {
@@ -282,13 +282,6 @@ func (h *Handler) handleRegister(ctx context.Context, attestationType string, me
 	if err != nil {
 		h.log.Error("Failed to compute identity", "err", err, slog.String("attestationType", attestationType))
 		return nil, nil, nil, fmt.Errorf("identity computation error: %w", err)
-	}
-
-	// Parse CSR to extract any operator signature extensions
-	parsedCsr, err := csr.GetX509CSR()
-	if err != nil {
-		h.log.Error("Failed to parse csr", "err", err)
-		return nil, nil, nil, fmt.Errorf("csr parsing error: %w", err)
 	}
 
 	// Extract operator address from signature extension if present
