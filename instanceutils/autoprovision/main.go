@@ -149,10 +149,14 @@ type Provisioner struct {
 	TLSKeyPath     string
 	AppPrivkeyPath string
 
-	ShouldAwaitOperatorSignature bool
-	CSRSignatureListenAddr       string
+	OperatorSignatureConfig OperatorSignatureConfig
 
 	RegistrationProvider api.RegistrationProvider
+}
+
+type OperatorSignatureConfig struct {
+    Enabled bool
+    ListenAddr string
 }
 
 func NewProvisioner(cCtx *cli.Context) (*Provisioner, error) {
@@ -222,8 +226,10 @@ func NewProvisioner(cCtx *cli.Context) (*Provisioner, error) {
 		TLSCertPath:                  tlsCertFile,
 		TLSKeyPath:                   tlsKeyFile,
 		AppPrivkeyPath:               appKeyFile,
-		ShouldAwaitOperatorSignature: cCtx.Bool("await-operator-signature"),
-		CSRSignatureListenAddr:       cCtx.String("operator-signature-listen-addr"),
+		OperatorSignatureConfig: OperatorSignatureConfig{
+		Enabled: cCtx.Bool("await-operator-signature"),
+		ListenAddr:       cCtx.String("operator-signature-listen-addr"),
+        },
 		RegistrationProvider:         registrationProvider,
 	}, nil
 }
@@ -242,8 +248,8 @@ func (p *Provisioner) Do() error {
 			return fmt.Errorf("could not create instance certificate request: %w", err)
 		}
 
-		if p.ShouldAwaitOperatorSignature {
-			certificate_request, err = p.AwaitCRSignature(tlskey, certificate_request)
+		if p.OperatorSignatureConfig.Enabled {
+			certificate_request, err = p.OperatorSignatureConfig.AwaitCRSignature(tlskey, certificate_request)
 			if err != nil {
 				return fmt.Errorf("error while waiting for operator signature: %w", err)
 			}
@@ -344,7 +350,7 @@ func (p *Provisioner) Do() error {
 	return nil
 }
 
-func (p *Provisioner) AwaitCRSignature(privateKey *ecdsa.PrivateKey, cr *x509.CertificateRequest) (*x509.CertificateRequest, error) {
+func (c *OperatorSignatureConfig) AwaitCRSignature(privateKey *ecdsa.PrivateKey, cr *x509.CertificateRequest) (*x509.CertificateRequest, error) {
 	pubkeyDer, err := x509.MarshalPKIXPublicKey(privateKey.PublicKey)
 	if err != nil {
 		return nil, err
@@ -372,7 +378,7 @@ func (p *Provisioner) AwaitCRSignature(privateKey *ecdsa.PrivateKey, cr *x509.Ce
 	})
 
 	s := http.Server{
-		Addr:    p.CSRSignatureListenAddr,
+		Addr:    c.ListenAddr,
 		Handler: mux,
 	}
 
