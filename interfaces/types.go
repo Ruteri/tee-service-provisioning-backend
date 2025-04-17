@@ -232,6 +232,9 @@ type OnchainRegistry interface {
 	// This uses the same algorithm as the on-chain registry contract.
 	ComputeMAAIdentity(report *MAAReport) ([32]byte, error)
 
+	// IdentityAllowed returns whether identity is allowed by governance
+	IdentityAllowed(identity [32]byte, operator [20]byte) (bool, error)
+
 	// GetArtifact retrieves an artifact from the registry by its hash.
 	// Returns the artifact data or an error if not found.
 	GetArtifact(artifactHash [32]byte) ([]byte, error)
@@ -245,13 +248,9 @@ type OnchainRegistry interface {
 	// Returns the content hash, transaction, and any error that occurred.
 	AddArtifact(data []byte) ([32]byte, *types.Transaction, error)
 
-	// SetConfigForDCAP associates an artifact with a DCAP-attested identity.
+	// SetConfigForIdentity associates an artifact with an identity.
 	// Returns the transaction and any error that occurred.
-	SetConfigForDCAP(report *DCAPReport, artifactHash [32]byte) (*types.Transaction, error)
-
-	// SetConfigForMAA associates an artifact with an MAA-attested identity.
-	// Returns the transaction and any error that occurred.
-	SetConfigForMAA(report *MAAReport, artifactHash [32]byte) (*types.Transaction, error)
+	SetConfigForIdentity(identity [32]byte, artifactHash [32]byte) (*types.Transaction, error)
 
 	// AllStorageBackends returns all registered storage backend URIs.
 	// These backends are used for retrieving artifacts.

@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/ruteri/tee-service-provisioning-backend/api"
+	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 	"github.com/stretchr/testify/mock"
 )
@@ -37,10 +38,10 @@ func (p *ProvisioningClient) Register(app interfaces.ContractAddress, csr []byte
 
 	registrationReq.Header.Set("Content-Type", "application/octet-stream")
 	if p.SetAttestationType != "" {
-		registrationReq.Header.Set(api.AttestationTypeHeader, p.SetAttestationType)
+		registrationReq.Header.Set(cryptoutils.AttestationTypeHeader, p.SetAttestationType)
 	}
 	if p.SetAttestationMeasurement != "" {
-		registrationReq.Header.Set(api.MeasurementHeader, p.SetAttestationMeasurement)
+		registrationReq.Header.Set(cryptoutils.MeasurementHeader, p.SetAttestationMeasurement)
 	}
 
 	registrationResp, err := http.DefaultClient.Do(registrationReq)
@@ -73,10 +74,10 @@ func (p *ProvisioningClient) GetAppMetadata(app interfaces.ContractAddress) (*ap
 
 	req.Header.Set("Content-Type", "application/octet-stream")
 	if p.SetAttestationType != "" {
-		req.Header.Set(api.AttestationTypeHeader, p.SetAttestationType)
+		req.Header.Set(cryptoutils.AttestationTypeHeader, p.SetAttestationType)
 	}
 	if p.SetAttestationMeasurement != "" {
-		req.Header.Set(api.MeasurementHeader, p.SetAttestationMeasurement)
+		req.Header.Set(cryptoutils.MeasurementHeader, p.SetAttestationMeasurement)
 	}
 
 	resp, err := http.DefaultClient.Do(req)

@@ -31,15 +31,19 @@ struct AppPKI {
 	bytes attestation;
 }
 
-// Interface needed by the provisioning backend
-interface IRegistry {
+interface WorkloadGovernance {
 	// PKI for the application (CA, secrets encryption key)
     function getPKI() external view returns (AppPKI memory);
+
+	// Whitelisted identities
+	function IdentityAllowed(bytes32 identity, address operator) external view returns (bool);
 
     // Identity computation from attestation reports
     function DCAPIdentity(DCAPReport memory report, DCAPEvent[] memory eventLog) external view returns (bytes32);
     function MAAIdentity(MAAReport memory report) external view returns (bytes32);
+}
 
+interface PorvisioningGovernance {
     // Configuration mapping for identity
     function getConfigForIdentity(bytes32 identity, address operator) external view returns (bytes32);
 
@@ -48,8 +52,9 @@ interface IRegistry {
 
     // Storage backend management
     function allStorageBackends() external view returns (string[] memory);
+}
 
-    // Optional: If artifacts are stored on-chain
+interface OnchainStore {
     function getArtifact(bytes32 artifactHash) external view returns (bytes memory);
 }
 
@@ -58,7 +63,7 @@ interface IRegistry {
  * @dev A contract for managing trusted execution environment (TEE) identities and configurations
  * using Intel DCAP attestation.
  */
-contract Registry is AccessControl, Ownable, ReentrancyGuard, IRegistry {
+contract Registry is AccessControl, Ownable, ReentrancyGuard, WorkloadGovernance, PorvisioningGovernance, OnchainStore {
     // Define roles as bytes32 constants
     bytes32 public constant ROLE_OPERATOR = keccak256("ROLE_OPERATOR");
     bytes32 public constant ROLE_METADATA = keccak256("ROLE_METADATA");
@@ -105,22 +110,6 @@ contract Registry is AccessControl, Ownable, ReentrancyGuard, IRegistry {
     }
 
     /**
-     * @dev Register a new instance domain
-     * @param domain The domain name to register
-     */
-    function registerInstanceDomainName(string memory domain) 
-        public 
-        onlyRole(ROLE_OPERATOR) 
-    {
-        instanceDomainNames.push(domain);
-        emit InstanceDomainRegistered(domain, msg.sender);
-    }
-
-	function allInstanceDomainNames() public view returns (string[] memory) {
-		return instanceDomainNames;
-	}
-
-    /**
      * @dev Set PKI and its attestation
      * @param pki The PKI (certificate authority, encryption pubkey, kms attestation)
      */
@@ -137,6 +126,128 @@ contract Registry is AccessControl, Ownable, ReentrancyGuard, IRegistry {
 
     function getPKI() external view returns (AppPKI memory) {
 		return app_pki;
+	}
+
+    /**
+     * @dev Calculate DCAP identity from a report
+     * @param report The DCAP report
+     * @return identity The calculated identity hash
+     */
+    function DCAPIdentity(DCAPReport memory report, DCAPEvent[] memory /* eventLog */)
+        public 
+        view 
+        returns (bytes32 identity) 
+    {
+        require(report.mrTd.length == 48, "incorrect mrtd length");
+        require(report.RTMRs[0].length == 48, "incorrect RTMR[0] length");
+        require(report.RTMRs[1].length == 48, "incorrect RTMR[1] length");
+        require(report.RTMRs[2].length == 48, "incorrect RTMR[2] length");
+        require(report.RTMRs[3].length == 48, "incorrect RTMR[3] length");
+        require(report.mrOwner.length == 48, "incorrect mrOwner length");
+        require(report.mrConfigId.length == 48, "incorrect mrConfigId length");
+        require(report.mrConfigOwner.length == 48, "incorrect mrConfigOwner length");
+        return keccak256(abi.encodePacked(address(this), report.RTMRs[0], report.RTMRs[1], report.RTMRs[2]));
+    }
+
+    /**
+     * @dev Calculate MAA identity from a report
+     * @param report The MAA report
+     * @return identity The calculated identity hash
+     */
+    function MAAIdentity(MAAReport memory report) 
+        public 
+        view 
+        returns (bytes32 identity) 
+    {
+        return keccak256(abi.encodePacked(address(this), report.PCRs[4], report.PCRs[9], report.PCRs[11]));
+    }
+
+	// Whitelisted identities
+	function IdentityAllowed(bytes32 identity, address operator) external view returns (bool) {
+		require(hasRole(ROLE_OPERATOR, operator), "Operator not authorized");
+		return identityConfigMap[identity] != bytes32(0);
+	}
+
+    /**
+     * @dev Set configuration for a DCAP report
+     * @param report The DCAP report
+     * @param eventLog The runtime event log (extensions)
+     * @param configHash The configuration hash to associate
+     */
+    function setConfigForDCAP(DCAPReport memory report, DCAPEvent[] memory eventLog, bytes32 configHash) 
+        public 
+        onlyOwner 
+    {
+        bytes32 identity = DCAPIdentity(report, eventLog);
+		setConfigForIdentity(identity, configHash);
+    }
+
+    /**
+     * @dev Set configuration for a DCAP report
+     * @param report The MAA report
+     * @param configHash The configuration hash to associate
+     */
+    function setConfigForMAA(MAAReport memory report, bytes32 configHash) 
+        public 
+        onlyOwner 
+    {
+        bytes32 identity = MAAIdentity(report);
+		setConfigForIdentity(identity, configHash);
+    }
+
+    /**
+     * @dev Set configuration for an identity
+     * @param identity the workload identiy
+     * @param configHash The configuration hash to associate
+     */
+	function setConfigForIdentity(bytes32 identity, bytes32 configHash)
+        public 
+        onlyOwner 
+	{
+        identityConfigMap[identity] = configHash;
+        emit IdentityConfigSet(identity, configHash, msg.sender);
+	}
+
+    /**
+     * @dev Return config id for an identity
+     * @param identity The TEE worklaod identity derived from instance measurements
+     * @param operator The operator's address, extracted from signature in CSR extensions
+     */
+    function getConfigForIdentity(bytes32 identity, address operator)
+        external
+        view
+        returns (bytes32)
+    {
+		require(hasRole(ROLE_OPERATOR, operator), "Operator not authorized");
+		require(identityConfigMap[identity] != bytes32(0), "Config not mapped");
+		return identityConfigMap[identity];
+	}
+
+    /**
+     * @dev Remove a config mapping for identity
+     * @param identity The identity hash to remove
+     */
+    function removeConfigMapForIdentity(bytes32 identity)
+        public
+        onlyOwner
+    {
+        delete identityConfigMap[identity];
+    }
+
+    /**
+     * @dev Register a new instance domain
+     * @param domain The domain name to register
+     */
+    function registerInstanceDomainName(string memory domain) 
+        public 
+        onlyRole(ROLE_OPERATOR) 
+    {
+        instanceDomainNames.push(domain);
+        emit InstanceDomainRegistered(domain, msg.sender);
+    }
+
+	function allInstanceDomainNames() public view returns (string[] memory) {
+		return instanceDomainNames;
 	}
 
 	// Add a new content location or update an existing one
@@ -206,101 +317,5 @@ contract Registry is AccessControl, Ownable, ReentrancyGuard, IRegistry {
     {
         require(artifacts[artifactHash].length > 0, "Artifact does not exist");
         return artifacts[artifactHash];
-    }
-
-    /**
-     * @dev Calculate DCAP identity from a report
-     * @param report The DCAP report
-     * @return identity The calculated identity hash
-     */
-    function DCAPIdentity(DCAPReport memory report, DCAPEvent[] memory /* eventLog */)
-        public 
-        view 
-        returns (bytes32 identity) 
-    {
-        require(report.mrTd.length == 48, "incorrect mrtd length");
-        require(report.RTMRs[0].length == 48, "incorrect RTMR[0] length");
-        require(report.RTMRs[1].length == 48, "incorrect RTMR[1] length");
-        require(report.RTMRs[2].length == 48, "incorrect RTMR[2] length");
-        require(report.RTMRs[3].length == 48, "incorrect RTMR[3] length");
-        require(report.mrOwner.length == 48, "incorrect mrOwner length");
-        require(report.mrConfigId.length == 48, "incorrect mrConfigId length");
-        require(report.mrConfigOwner.length == 48, "incorrect mrConfigOwner length");
-        return keccak256(abi.encodePacked(address(this), report.RTMRs[0], report.RTMRs[1], report.RTMRs[2]));
-    }
-
-    /**
-     * @dev Calculate MAA identity from a report
-     * @param report The MAA report
-     * @return identity The calculated identity hash
-     */
-    function MAAIdentity(MAAReport memory report) 
-        public 
-        view 
-        returns (bytes32 identity) 
-    {
-        return keccak256(abi.encodePacked(address(this), report.PCRs[4], report.PCRs[9], report.PCRs[11]));
-    }
-
-    /**
-     * @dev Set configuration for a DCAP report
-     * @param report The DCAP report
-     * @param eventLog The runtime event log (extensions)
-     * @param configHash The configuration hash to associate
-     */
-    function setConfigForDCAP(DCAPReport memory report, DCAPEvent[] memory eventLog, bytes32 configHash) 
-        public 
-        onlyOwner 
-        nonReentrant
-    {
-        bytes32 identity = DCAPIdentity(report, eventLog);
-		setConfigForIdentity(identity, configHash);
-    }
-
-    /**
-     * @dev Set configuration for a DCAP report
-     * @param report The MAA report
-     * @param configHash The configuration hash to associate
-     */
-    function setConfigForMAA(MAAReport memory report, bytes32 configHash) 
-        public 
-        onlyOwner 
-        nonReentrant
-    {
-        bytes32 identity = MAAIdentity(report);
-		setConfigForIdentity(identity, configHash);
-    }
-
-	function setConfigForIdentity(bytes32 identity, bytes32 configHash)
-		private
-	{
-        identityConfigMap[identity] = configHash;
-        emit IdentityConfigSet(identity, configHash, msg.sender);
-	}
-
-    /**
-     * @dev Return config id for an identity
-     * @param identity The TEE worklaod identity derived from instance measurements
-     * @param operator The operator's address, extracted from signature in CSR extensions
-     */
-    function getConfigForIdentity(bytes32 identity, address operator)
-        external
-        view
-        returns (bytes32)
-    {
-		require(hasRole(ROLE_OPERATOR, operator), "Operator not authorized");
-		require(identityConfigMap[identity] != bytes32(0), "Config not mapped");
-		return identityConfigMap[identity];
-	}
-
-    /**
-     * @dev Remove a config mapping for identity
-     * @param identity The identity hash to remove
-     */
-    function removeConfigMapForIdentity(bytes32 identity)
-        public
-        onlyOwner
-    {
-        delete identityConfigMap[identity];
     }
 }

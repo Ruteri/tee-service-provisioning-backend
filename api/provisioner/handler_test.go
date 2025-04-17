@@ -20,7 +20,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/go-chi/chi/v5"
 	"github.com/ruteri/tee-service-provisioning-backend/api"
@@ -60,18 +59,20 @@ func setupTestEnvironment(t *testing.T) (string, *slog.Logger, interfaces.KMS, i
 	return tempDir, logger, kmsInstance, storageFactory, fileBackend
 }
 
-func getTestMeasurements() map[int]string {
+func getTestMeasurements() string {
 	var bytesPrefix [47]byte
-	return map[int]string{
+	m, _ := json.Marshal(map[int]string{
 		0: hex.EncodeToString(append(bytesPrefix[:], 0)),
 		1: hex.EncodeToString(append(bytesPrefix[:], 1)),
 		2: hex.EncodeToString(append(bytesPrefix[:], 2)),
 		3: hex.EncodeToString(append(bytesPrefix[:], 3)),
 		4: hex.EncodeToString(append(bytesPrefix[:], 4)),
-	}
+	})
+	return string(m)
 }
 
 // Test HandleRegister - Success Path
+// TODO: test allowed identity but empty config
 func TestHandleRegister_Success(t *testing.T) {
 	tempDir, logger, kmsInstance, storageFactory, fileBackend := setupTestEnvironment(t)
 	defer os.RemoveAll(tempDir)
@@ -81,18 +82,18 @@ func TestHandleRegister_Success(t *testing.T) {
 	mockRegistry := new(registry.MockRegistry)
 
 	// Set up test data
-	contractAddr := interfaces.ContractAddress(common.HexToAddress("0123456789abcdef0123"))
+	contractAddr, _ := interfaces.NewContractAddressFromHex("0123456789abcdef0123")
 	identity := [32]byte{1, 2, 3, 4}
 	configTemplate := []byte(`{"app":"test","settings":{"timeout":30}}`)
 
 	// Store the config in file storage
-	ctx := context.Background()
-	configHash, err := fileBackend.Store(ctx, configTemplate, interfaces.ConfigType)
+	configHash, err := fileBackend.Store(context.Background(), configTemplate, interfaces.ConfigType)
 	require.NoError(t, err)
 
 	// Setup mock expectations for registry
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
 	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
+	mockRegistry.On("IdentityAllowed", identity, mock.Anything).Return(true, nil)
 	mockRegistry.On("IdentityConfigMap", identity, mock.Anything).Return([32]byte(configHash), nil)
 	mockRegistry.On("AllStorageBackends").Return([]string{fileBackend.LocationURI()}, nil)
 
@@ -104,25 +105,20 @@ func TestHandleRegister_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create request with contract address in URL
-	contractAddrHex := hex.EncodeToString(contractAddr[:])
 	req := httptest.NewRequest(
 		http.MethodPost,
-		fmt.Sprintf("/api/attested/register/%s", contractAddrHex),
+		fmt.Sprintf("/api/attested/register/%s", contractAddr.String()),
 		bytes.NewReader(csr),
 	)
-	req.Header.Set(api.AttestationTypeHeader, api.QemuTDX)
-
-	// Use JSON-encoded measurement map
-	measurementsJSON, err := json.Marshal(getTestMeasurements())
-	require.NoError(t, err)
-	req.Header.Set(api.MeasurementHeader, string(measurementsJSON))
+	req.Header.Set(cryptoutils.AttestationTypeHeader, cryptoutils.DCAPAttestation.StringID)
+	req.Header.Set(cryptoutils.MeasurementHeader, getTestMeasurements())
 
 	// Create response recorder
 	w := httptest.NewRecorder()
 
 	// Call handler
 	mux := chi.NewRouter()
-	mux.Post("/api/attested/register/{contract_address}", handler.HandleRegister)
+	handler.RegisterRoutes(mux)
 	mux.ServeHTTP(w, req)
 
 	// Verify response
@@ -157,12 +153,70 @@ func TestHandleRegister_IdentityNotWhitelisted(t *testing.T) {
 	mockRegistry := new(registry.MockRegistry)
 
 	// Set up test data
-	contractAddr := interfaces.ContractAddress(common.HexToAddress("0123456789abcdef0123"))
+	contractAddr, _ := interfaces.NewContractAddressFromHex("0123456789abcdef0123")
 	identity := [32]byte{1, 2, 3, 4}
 
 	// Setup mock expectations for failure case
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
 	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
+	mockRegistry.On("IdentityAllowed", identity, mock.Anything).Return(false, nil)
+
+	// Create handler
+	handler := NewHandler(kmsInstance, storageFactory, mockRegistryFactory, logger)
+
+	// Create test CSR
+	_, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(contractAddr).String())
+	require.NoError(t, err)
+
+	// Create request with contract address in URL
+	req := httptest.NewRequest(
+		http.MethodPost,
+		fmt.Sprintf("/api/attested/register/%s", contractAddr.String()),
+		bytes.NewReader(csr),
+	)
+	req.Header.Set(cryptoutils.AttestationTypeHeader, cryptoutils.DCAPAttestation.StringID)
+	req.Header.Set(cryptoutils.MeasurementHeader, getTestMeasurements())
+
+	// Create response recorder
+	w := httptest.NewRecorder()
+
+	// Call handler
+	mux := chi.NewRouter()
+	handler.RegisterRoutes(mux)
+	mux.ServeHTTP(w, req)
+
+	// Verify response
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "identity not allowed")
+
+	// Verify expectations
+	mockRegistryFactory.AssertExpectations(t)
+	mockRegistry.AssertExpectations(t)
+}
+
+// Test HandleRegister - Config Not Mapped
+func TestHandleRegister_ConfigNotMapped(t *testing.T) {
+	tempDir, logger, kmsInstance, storageFactory, _ := setupTestEnvironment(t)
+	defer os.RemoveAll(tempDir)
+
+	// Set up mock registry factory
+	mockRegistryFactory := new(registry.MockRegistryFactory)
+	mockRegistry := new(registry.MockRegistry)
+
+	// Set up test data
+	contractAddr, _ := interfaces.NewContractAddressFromHex("0123456789abcdef0123")
+	identity := [32]byte{1, 2, 3, 4}
+
+	// Setup mock expectations for failure case
+	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
+	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
+	mockRegistry.On("IdentityAllowed", identity, mock.Anything).Return(true, nil)
 	mockRegistry.On("IdentityConfigMap", identity, mock.Anything).Return([32]byte{}, errors.New("No mapping"))
 
 	// Create handler
@@ -173,24 +227,20 @@ func TestHandleRegister_IdentityNotWhitelisted(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create request with contract address in URL
-	contractAddrHex := hex.EncodeToString(contractAddr[:])
 	req := httptest.NewRequest(
 		http.MethodPost,
-		fmt.Sprintf("/api/attested/register/%s", contractAddrHex),
+		fmt.Sprintf("/api/attested/register/%s", contractAddr.String()),
 		bytes.NewReader(csr),
 	)
-	req.Header.Set(api.AttestationTypeHeader, api.QemuTDX)
-
-	measurementsJSON, err := json.Marshal(getTestMeasurements())
-	require.NoError(t, err)
-	req.Header.Set(api.MeasurementHeader, string(measurementsJSON))
+	req.Header.Set(cryptoutils.AttestationTypeHeader, cryptoutils.DCAPAttestation.StringID)
+	req.Header.Set(cryptoutils.MeasurementHeader, getTestMeasurements())
 
 	// Create response recorder
 	w := httptest.NewRecorder()
 
 	// Call handler
 	mux := chi.NewRouter()
-	mux.Post("/api/attested/register/{contract_address}", handler.HandleRegister)
+	handler.RegisterRoutes(mux)
 	mux.ServeHTTP(w, req)
 
 	// Verify response
@@ -208,6 +258,72 @@ func TestHandleRegister_IdentityNotWhitelisted(t *testing.T) {
 	mockRegistry.AssertExpectations(t)
 }
 
+// Test HandleRegister - Empty Config
+func TestHandleRegister_EmptyConfig(t *testing.T) {
+	tempDir, logger, kmsInstance, storageFactory, _ := setupTestEnvironment(t)
+	defer os.RemoveAll(tempDir)
+
+	// Set up mock registry factory
+	mockRegistryFactory := new(registry.MockRegistryFactory)
+	mockRegistry := new(registry.MockRegistry)
+
+	// Set up test data
+	contractAddr, _ := interfaces.NewContractAddressFromHex("0123456789abcdef0123")
+	identity := [32]byte{1, 2, 3, 4}
+
+	// Setup mock expectations for failure case
+	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
+	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
+	mockRegistry.On("IdentityAllowed", identity, mock.Anything).Return(true, nil)
+	mockRegistry.On("IdentityConfigMap", identity, mock.Anything).Return([32]byte{}, nil)
+
+	// Create handler
+	handler := NewHandler(kmsInstance, storageFactory, mockRegistryFactory, logger)
+
+	// Create test CSR
+	_, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(contractAddr).String())
+	require.NoError(t, err)
+
+	// Create request with contract address in URL
+	req := httptest.NewRequest(
+		http.MethodPost,
+		fmt.Sprintf("/api/attested/register/%s", contractAddr.String()),
+		bytes.NewReader(csr),
+	)
+	req.Header.Set(cryptoutils.AttestationTypeHeader, cryptoutils.DCAPAttestation.StringID)
+	req.Header.Set(cryptoutils.MeasurementHeader, getTestMeasurements())
+
+	// Create response recorder
+	w := httptest.NewRecorder()
+
+	// Call handler
+	mux := chi.NewRouter()
+	handler.RegisterRoutes(mux)
+	mux.ServeHTTP(w, req)
+
+	// Verify response
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var result map[string]interface{}
+	respBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	err = json.Unmarshal(respBody, &result)
+	require.NoError(t, err, string(respBody))
+
+	// Verify response contains expected fields
+	assert.Contains(t, result, "app_privkey")
+	assert.Contains(t, result, "tls_cert")
+	assert.Contains(t, result, "config")
+	assert.Equal(t, result["config"], nil)
+
+	// Verify registry mock expectations were met
+	mockRegistryFactory.AssertExpectations(t)
+	mockRegistry.AssertExpectations(t)
+}
+
 // Test HandleAppMetadata - Success Path
 func TestHandleAppMetadata_Success(t *testing.T) {
 	_, logger, kmsInstance, storageFactory, _ := setupTestEnvironment(t)
@@ -218,7 +334,7 @@ func TestHandleAppMetadata_Success(t *testing.T) {
 	mockRegistry.SetTransactOpts()
 
 	// Set up test data
-	contractAddr := interfaces.ContractAddress(common.HexToAddress("0123456789abcdef0123"))
+	contractAddr, _ := interfaces.NewContractAddressFromHex("0123456789abcdef0123")
 
 	// Setup mock expectations for failure case
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
@@ -232,10 +348,9 @@ func TestHandleAppMetadata_Success(t *testing.T) {
 	handler := NewHandler(kmsInstance, storageFactory, mockRegistryFactory, logger)
 
 	// Create test request with contract address in URL
-	contractAddrHex := hex.EncodeToString(contractAddr[:])
 	req := httptest.NewRequest(
 		http.MethodGet,
-		fmt.Sprintf("/api/public/app_metadata/%s", contractAddrHex),
+		fmt.Sprintf("/api/public/app_metadata/%s", contractAddr.String()),
 		nil,
 	)
 
@@ -244,7 +359,7 @@ func TestHandleAppMetadata_Success(t *testing.T) {
 
 	// Call handler
 	mux := chi.NewRouter()
-	mux.Get("/api/public/app_metadata/{contract_address}", handler.HandleAppMetadata)
+	handler.RegisterRoutes(mux)
 	mux.ServeHTTP(w, req)
 
 	// Verify response
@@ -275,7 +390,7 @@ func TestConfigReferenceResolution(t *testing.T) {
 	mockRegistry := new(registry.MockRegistry)
 
 	// Set up contract address and identity
-	contractAddr := interfaces.ContractAddress(common.HexToAddress("0123456789abcdef0123"))
+	contractAddr, _ := interfaces.NewContractAddressFromHex("0123456789abcdef0123")
 	identity := [32]byte{1, 2, 3, 4}
 
 	// Store test data in the storage backend
@@ -319,6 +434,7 @@ func TestConfigReferenceResolution(t *testing.T) {
 	// Set up mock expectations
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
 	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
+	mockRegistry.On("IdentityAllowed", identity, mock.Anything).Return(true, nil)
 	mockRegistry.On("IdentityConfigMap", identity, mock.Anything).Return([32]byte(templateHash), nil)
 	mockRegistry.On("AllStorageBackends").Return([]string{fileBackend.LocationURI()}, nil)
 
@@ -330,25 +446,20 @@ func TestConfigReferenceResolution(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test request
-	contractAddrHex := hex.EncodeToString(contractAddr[:])
 	req := httptest.NewRequest(
 		http.MethodPost,
-		fmt.Sprintf("/api/attested/register/%s", contractAddrHex),
+		fmt.Sprintf("/api/attested/register/%s", contractAddr.String()),
 		bytes.NewReader(csr),
 	)
-	req.Header.Set(api.AttestationTypeHeader, api.QemuTDX)
-
-	// Set up measurements header
-	measurementsJSON, err := json.Marshal(getTestMeasurements())
-	require.NoError(t, err)
-	req.Header.Set(api.MeasurementHeader, string(measurementsJSON))
+	req.Header.Set(cryptoutils.AttestationTypeHeader, cryptoutils.DCAPAttestation.StringID)
+	req.Header.Set(cryptoutils.MeasurementHeader, getTestMeasurements())
 
 	// Create response recorder
 	w := httptest.NewRecorder()
 
 	// Call handler
 	mux := chi.NewRouter()
-	mux.Post("/api/attested/register/{contract_address}", handler.HandleRegister)
+	handler.RegisterRoutes(mux)
 	mux.ServeHTTP(w, req)
 
 	// Verify response
@@ -443,6 +554,7 @@ func TestServerSideDecryption(t *testing.T) {
 
 	// Setup mock expectations
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
+	mockRegistry.On("IdentityAllowed", identity, mock.Anything).Return(true, nil)
 	mockRegistry.On("IdentityConfigMap", identity, mock.Anything).Return([32]byte(configHash), nil)
 	mockRegistry.On("AllStorageBackends").Return([]string{fileBackend.LocationURI()}, nil)
 	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
@@ -455,13 +567,20 @@ func TestServerSideDecryption(t *testing.T) {
 	require.NoError(t, err)
 
 	// Call handleRegister directly
-	appPrivkey, _, processedConfig, err := handler.handleRegister(ctx, api.QemuTDX, getTestMeasurements(), contractAddr, csr)
+	req := httptest.NewRequest(
+		http.MethodPost,
+		fmt.Sprintf("/api/attested/register/%s", contractAddr.String()),
+		bytes.NewReader(csr),
+	)
+	req.Header.Set(cryptoutils.AttestationTypeHeader, cryptoutils.DCAPAttestation.StringID)
+	req.Header.Set(cryptoutils.MeasurementHeader, getTestMeasurements())
+	resp, err := handler.handleRegister(req, contractAddr, csr)
 	require.NoError(t, err)
-	require.NotNil(t, appPrivkey)
+	require.NotNil(t, resp.AppPrivkey)
 
 	// Parse the processed config
 	var config map[string]interface{}
-	err = json.Unmarshal(processedConfig, &config)
+	err = json.Unmarshal(resp.Config, &config)
 	require.NoError(t, err)
 
 	// Check that credentials have been decrypted and are now a JSON object
@@ -556,6 +675,7 @@ func TestComplexConfigWithServerDecryption(t *testing.T) {
 
 	// Setup mock expectations
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
+	mockRegistry.On("IdentityAllowed", identity, mock.Anything).Return(true, nil)
 	mockRegistry.On("IdentityConfigMap", identity, mock.Anything).Return([32]byte(configHash), nil)
 	mockRegistry.On("AllStorageBackends").Return([]string{fileBackend.LocationURI()}, nil)
 	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
@@ -568,12 +688,19 @@ func TestComplexConfigWithServerDecryption(t *testing.T) {
 	require.NoError(t, err)
 
 	// Call handleRegister
-	_, _, processedConfig, err := handler.handleRegister(ctx, api.QemuTDX, getTestMeasurements(), contractAddr, csr)
+	req := httptest.NewRequest(
+		http.MethodPost,
+		fmt.Sprintf("/api/attested/register/%s", contractAddr.String()),
+		bytes.NewReader(csr),
+	)
+	req.Header.Set(cryptoutils.AttestationTypeHeader, cryptoutils.DCAPAttestation.StringID)
+	req.Header.Set(cryptoutils.MeasurementHeader, getTestMeasurements())
+	resp, err := handler.handleRegister(req, contractAddr, csr)
 	require.NoError(t, err)
 
 	// Parse the processed config
 	var config map[string]interface{}
-	err = json.Unmarshal(processedConfig, &config)
+	err = json.Unmarshal(resp.Config, &config)
 	require.NoError(t, err)
 
 	// Check database section
@@ -650,6 +777,7 @@ func TestDecryptionFailure(t *testing.T) {
 
 	// Setup mock expectations
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
+	mockRegistry.On("IdentityAllowed", identity, mock.Anything).Return(true, nil)
 	mockRegistry.On("IdentityConfigMap", identity, mock.Anything).Return([32]byte(configHash), nil)
 	mockRegistry.On("AllStorageBackends").Return([]string{fileBackend.LocationURI()}, nil)
 	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
@@ -661,8 +789,15 @@ func TestDecryptionFailure(t *testing.T) {
 	_, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(contractAddr).String())
 	require.NoError(t, err)
 
-	// Call handleRegister - decryption should fail but not crash
-	_, _, _, err = handler.handleRegister(ctx, api.QemuTDX, getTestMeasurements(), contractAddr, csr)
+	// Call handleRegister
+	req := httptest.NewRequest(
+		http.MethodPost,
+		fmt.Sprintf("/api/attested/register/%s", contractAddr.String()),
+		bytes.NewReader(csr),
+	)
+	req.Header.Set(cryptoutils.AttestationTypeHeader, cryptoutils.DCAPAttestation.StringID)
+	req.Header.Set(cryptoutils.MeasurementHeader, getTestMeasurements())
+	_, err = handler.handleRegister(req, contractAddr, csr)
 	require.Error(t, err)
 
 	// Verify mock expectations
@@ -713,6 +848,7 @@ func TestNonJSONSecret(t *testing.T) {
 
 	// Setup mock expectations
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
+	mockRegistry.On("IdentityAllowed", identity, mock.Anything).Return(true, nil)
 	mockRegistry.On("IdentityConfigMap", identity, mock.Anything).Return([32]byte(configHash), nil)
 	mockRegistry.On("AllStorageBackends").Return([]string{fileBackend.LocationURI()}, nil)
 	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
@@ -724,12 +860,19 @@ func TestNonJSONSecret(t *testing.T) {
 	require.NoError(t, err)
 
 	// Call handleRegister
-	_, _, processedConfig, err := handler.handleRegister(ctx, api.QemuTDX, getTestMeasurements(), contractAddr, csr)
+	req := httptest.NewRequest(
+		http.MethodPost,
+		fmt.Sprintf("/api/attested/register/%s", contractAddr.String()),
+		bytes.NewReader(csr),
+	)
+	req.Header.Set(cryptoutils.AttestationTypeHeader, cryptoutils.DCAPAttestation.StringID)
+	req.Header.Set(cryptoutils.MeasurementHeader, getTestMeasurements())
+	resp, err := handler.handleRegister(req, contractAddr, csr)
 	require.NoError(t, err)
 
 	// Parse the processed config
 	var config map[string]interface{}
-	err = json.Unmarshal(processedConfig, &config)
+	err = json.Unmarshal(resp.Config, &config)
 	require.Error(t, err)
 
 	// Verify mock expectations
@@ -748,7 +891,7 @@ func TestHandleRegister_WithOperatorSignature(t *testing.T) {
 	mockRegistry := new(registry.MockRegistry)
 
 	// Set up test data
-	contractAddr := interfaces.ContractAddress(common.HexToAddress("0123456789abcdef0123"))
+	contractAddr, _ := interfaces.NewContractAddressFromHex("0123456789abcdef0123")
 	identity := [32]byte{1, 2, 3, 4}
 	configTemplate := []byte(`{"app":"test","settings":{"timeout":30}}`)
 
@@ -759,6 +902,7 @@ func TestHandleRegister_WithOperatorSignature(t *testing.T) {
 
 	// Setup mock expectations for registry - note the operatorAddress parameter
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
+	mockRegistry.On("IdentityAllowed", identity, mock.Anything).Return(true, nil)
 	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
 	mockRegistry.On("AllStorageBackends").Return([]string{fileBackend.LocationURI()}, nil)
 
@@ -821,25 +965,20 @@ func TestHandleRegister_WithOperatorSignature(t *testing.T) {
 	})
 
 	// Create request with contract address in URL
-	contractAddrHex := hex.EncodeToString(contractAddr[:])
 	req := httptest.NewRequest(
 		http.MethodPost,
-		fmt.Sprintf("/api/attested/register/%s", contractAddrHex),
+		fmt.Sprintf("/api/attested/register/%s", contractAddr.String()),
 		bytes.NewReader(csrPEM),
 	)
-	req.Header.Set(api.AttestationTypeHeader, api.QemuTDX)
-
-	// Use JSON-encoded measurement map
-	measurementsJSON, err := json.Marshal(getTestMeasurements())
-	require.NoError(t, err)
-	req.Header.Set(api.MeasurementHeader, string(measurementsJSON))
+	req.Header.Set(cryptoutils.AttestationTypeHeader, cryptoutils.DCAPAttestation.StringID)
+	req.Header.Set(cryptoutils.MeasurementHeader, getTestMeasurements())
 
 	// Create response recorder
 	w := httptest.NewRecorder()
 
 	// Call handler
 	mux := chi.NewRouter()
-	mux.Post("/api/attested/register/{contract_address}", handler.HandleRegister)
+	handler.RegisterRoutes(mux)
 	mux.ServeHTTP(w, req)
 
 	// Verify response
@@ -875,11 +1014,12 @@ func TestHandleRegister_UnauthorizedOperator(t *testing.T) {
 	mockRegistry := new(registry.MockRegistry)
 
 	// Set up test data
-	contractAddr := interfaces.ContractAddress(common.HexToAddress("0123456789abcdef0123"))
+	contractAddr, _ := interfaces.NewContractAddressFromHex("0123456789abcdef0123")
 	identity := [32]byte{1, 2, 3, 4}
 
 	// Setup mock expectations - operator is not authorized for this identity
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
+	mockRegistry.On("IdentityAllowed", identity, mock.Anything).Return(true, nil)
 	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
 
 	// Create handler
@@ -938,24 +1078,20 @@ func TestHandleRegister_UnauthorizedOperator(t *testing.T) {
 	})
 
 	// Create request
-	contractAddrHex := hex.EncodeToString(contractAddr[:])
 	req := httptest.NewRequest(
 		http.MethodPost,
-		fmt.Sprintf("/api/attested/register/%s", contractAddrHex),
+		fmt.Sprintf("/api/attested/register/%s", contractAddr.String()),
 		bytes.NewReader(csrPEM),
 	)
-	req.Header.Set(api.AttestationTypeHeader, api.QemuTDX)
-
-	measurementsJSON, err := json.Marshal(getTestMeasurements())
-	require.NoError(t, err)
-	req.Header.Set(api.MeasurementHeader, string(measurementsJSON))
+	req.Header.Set(cryptoutils.AttestationTypeHeader, cryptoutils.DCAPAttestation.StringID)
+	req.Header.Set(cryptoutils.MeasurementHeader, getTestMeasurements())
 
 	// Create response recorder
 	w := httptest.NewRecorder()
 
 	// Call handler
 	mux := chi.NewRouter()
-	mux.Post("/api/attested/register/{contract_address}", handler.HandleRegister)
+	handler.RegisterRoutes(mux)
 	mux.ServeHTTP(w, req)
 
 	// Verify response - should be rejected

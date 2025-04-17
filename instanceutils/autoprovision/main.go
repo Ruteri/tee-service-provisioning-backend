@@ -155,8 +155,8 @@ type Provisioner struct {
 }
 
 type OperatorSignatureConfig struct {
-    Enabled bool
-    ListenAddr string
+	Enabled    bool
+	ListenAddr string
 }
 
 func NewProvisioner(cCtx *cli.Context) (*Provisioner, error) {
@@ -222,15 +222,15 @@ func NewProvisioner(cCtx *cli.Context) (*Provisioner, error) {
 			MapperName:   cCtx.String("mapper-name"),
 			MapperDevice: mapperDevice,
 		},
-		ConfigFilePath:               configFile,
-		TLSCertPath:                  tlsCertFile,
-		TLSKeyPath:                   tlsKeyFile,
-		AppPrivkeyPath:               appKeyFile,
+		ConfigFilePath: configFile,
+		TLSCertPath:    tlsCertFile,
+		TLSKeyPath:     tlsKeyFile,
+		AppPrivkeyPath: appKeyFile,
 		OperatorSignatureConfig: OperatorSignatureConfig{
-		Enabled: cCtx.Bool("await-operator-signature"),
-		ListenAddr:       cCtx.String("operator-signature-listen-addr"),
-        },
-		RegistrationProvider:         registrationProvider,
+			Enabled:    cCtx.Bool("await-operator-signature"),
+			ListenAddr: cCtx.String("operator-signature-listen-addr"),
+		},
+		RegistrationProvider: registrationProvider,
 	}, nil
 }
 

@@ -98,6 +98,22 @@ func (m *MockRegistryClient) ComputeMAAIdentity(report *interfaces.MAAReport) ([
 	return sha256.Sum256(data), nil
 }
 
+// IdentityAllowed returns whether identity is allowed
+func (m *MockRegistryClient) IdentityAllowed(identity [32]byte, operator [20]byte) (bool, error) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
+	if !m.allowedOperators[operator] {
+		return false, nil
+	}
+
+	_, exists := m.idToArtifact[identity]
+	if !exists {
+		return false, nil
+	}
+	return true, nil
+}
+
 // IdentityConfigMap gets the artifact hash assigned to an identity in the mock registry.
 // Returns the artifact hash or an error if no mapping exists for the provided identity.
 func (m *MockRegistryClient) IdentityConfigMap(identity [32]byte, operator [20]byte) ([32]byte, error) {
@@ -218,10 +234,10 @@ func (m *MockRegistryClient) GetArtifact(artifactHash [32]byte) ([]byte, error) 
 	return artifact, nil
 }
 
-// SetConfigForDCAP associates an artifact with a DCAP identity in the mock registry.
+// SetConfigForIdentity associates an artifact with an identity in the mock registry.
 // It first computes the identity from the report, then maps it to the given artifact hash.
 // Returns a simulated transaction and error if transactions are not allowed.
-func (m *MockRegistryClient) SetConfigForDCAP(report *interfaces.DCAPReport, artifactHash [32]byte) (*types.Transaction, error) {
+func (m *MockRegistryClient) SetConfigForIdentity(identity [32]byte, artifactHash [32]byte) (*types.Transaction, error) {
 	if !m.allowTransacting {
 		return nil, ErrNoTransactOpts
 	}
@@ -233,44 +249,6 @@ func (m *MockRegistryClient) SetConfigForDCAP(report *interfaces.DCAPReport, art
 
 	if !exists {
 		return nil, errors.New("artifact does not exist")
-	}
-
-	// Compute identity
-	identity, err := m.ComputeDCAPIdentity(report)
-	if err != nil {
-		return nil, err
-	}
-
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	// Map the identity to the artifact
-	m.idToArtifact[identity] = artifactHash
-
-	return &types.Transaction{}, nil
-}
-
-// SetConfigForMAA associates an artifact with an MAA identity in the mock registry.
-// It first computes the identity from the report, then maps it to the given artifact hash.
-// Returns a simulated transaction and error if transactions are not allowed.
-func (m *MockRegistryClient) SetConfigForMAA(report *interfaces.MAAReport, artifactHash [32]byte) (*types.Transaction, error) {
-	if !m.allowTransacting {
-		return nil, ErrNoTransactOpts
-	}
-
-	// Check if artifact exists
-	m.mutex.RLock()
-	_, exists := m.artifacts[artifactHash]
-	m.mutex.RUnlock()
-
-	if !exists {
-		return nil, errors.New("artifact does not exist")
-	}
-
-	// Compute identity
-	identity, err := m.ComputeMAAIdentity(report)
-	if err != nil {
-		return nil, err
 	}
 
 	m.mutex.Lock()

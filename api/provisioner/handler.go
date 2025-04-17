@@ -11,7 +11,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -77,111 +76,8 @@ func NewHandler(kms interfaces.KMS, storageFactory interfaces.StorageBackendFact
 }
 
 func (h *Handler) RegisterRoutes(r chi.Router) {
-	r.Post("/api/attested/register/{contract_address}", h.HandleRegister)
 	r.Get("/api/public/app_metadata/{contract_address}", h.HandleAppMetadata)
-}
-
-// HandleRegister processes TEE instance registration requests.
-// It validates attestation evidence, verifies the instance's identity,
-// and provides cryptographic materials and configuration if authorized.
-//
-// URL format: POST /api/attested/register/{contract_address}
-// Required headers:
-//   - X-Flashbots-Attestation-Type: Type of attestation
-//   - X-Flashbots-Measurement: JSON-encoded measurement values
-//
-// Request body: TLS Certificate Signing Request (CSR) in PEM format
-// The CSR may optionally include an operator signature as an X.509 extension
-// with OID api.OIDOperatorSignature. This signature provides additional
-// authorization from an approved operator.
-//
-// Response: JSON, see api.RegistrationResponse
-//
-// The handler decrypts any pre-encrypted secrets referenced in the configuration template
-// before sending the response, ensuring the TEE instance receives plaintext secrets.
-func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
-	// Parse attestation type from header
-	attestationType := r.Header.Get(api.AttestationTypeHeader)
-	if attestationType == "" {
-		http.Error(w, "Missing attestation type header", http.StatusBadRequest)
-		return
-	}
-
-	// Parse measurements from header
-	measurementsJSON := r.Header.Get(api.MeasurementHeader)
-	if measurementsJSON == "" {
-		http.Error(w, "Missing measurements header", http.StatusBadRequest)
-		return
-	}
-
-	// Parse measurements JSON to map
-	var measurements map[int]string
-	if err := json.Unmarshal([]byte(measurementsJSON), &measurements); err != nil {
-		h.log.Error("Failed to parse measurements JSON", "err", err, "json", measurementsJSON)
-		http.Error(w, "Invalid measurements format", http.StatusBadRequest)
-		return
-	}
-
-	contractAddrHex := r.PathValue("contract_address")
-	if contractAddrHex == "" {
-		http.Error(w, "Missing contract address in URL", http.StatusBadRequest)
-		return
-	}
-
-	// Parse contract address from hex
-	contractAddrBytes, err := hex.DecodeString(contractAddrHex)
-	if err != nil || len(contractAddrBytes) != 20 {
-		h.log.Error("Invalid contract address", "err", err, "address", contractAddrHex)
-		http.Error(w, "Invalid contract address format", http.StatusBadRequest)
-		return
-	}
-
-	var contractAddr interfaces.ContractAddress
-	copy(contractAddr[:], contractAddrBytes)
-
-	// Read CSR from request body
-	csr, err := io.ReadAll(r.Body)
-	if err != nil {
-		h.log.Error("Failed to read request body", "err", err)
-		http.Error(w, "Failed to read request body", http.StatusBadRequest)
-		return
-	}
-
-	if len(csr) == 0 {
-		http.Error(w, "Empty CSR in request body", http.StatusBadRequest)
-		return
-	}
-
-	// Process the registration
-	appPrivkey, tlsCert, instanceConfig, err := h.handleRegister(r.Context(), attestationType, measurements, contractAddr, csr)
-	if err != nil {
-		h.log.Error("Registration failed", "err", err,
-			"attestationType", attestationType,
-			"contractAddress", contractAddrHex)
-
-		// Return appropriate status code based on error type
-		if strings.Contains(err.Error(), "invalid") {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-		} else {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-		return
-	}
-
-	// Prepare response
-	response := api.RegistrationResponse{
-		AppPrivkey: appPrivkey,
-		TLSCert:    tlsCert,
-		Config:     instanceConfig,
-	}
-
-	// Return JSON response
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		h.log.Error("Failed to encode response", "err", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
+	r.Post("/api/attested/register/{contract_address}", h.HandleRegister)
 }
 
 // HandleAppMetadata retrieves application metadata for a specified contract address.
@@ -247,101 +143,239 @@ func (h *Handler) HandleAppMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleRegister processes TEE instance registration requests.
-// This is the core business logic implementation for HandleRegister.
+// HandleRegister processes TEE instance registration requests.
+// It validates attestation evidence, verifies the instance's identity,
+// and provides cryptographic materials and configuration if authorized.
+//
+// URL format: POST /api/attested/register/{contract_address}
+// Required headers:
+//   - X-Flashbots-Attestation-Type: Type of attestation
+//   - X-Flashbots-Measurement: JSON-encoded measurement values
+//
+// Request body: TLS Certificate Signing Request (CSR) in PEM format
+// The CSR may optionally include an operator signature as an X.509 extension
+// with OID api.OIDOperatorSignature. This signature provides additional
+// authorization from an approved operator.
+//
+// Response: JSON, see api.RegistrationResponse
+//
+// The handler decrypts any pre-encrypted secrets referenced in the configuration template
+// before sending the response, ensuring the TEE instance receives plaintext secrets.
+func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
+	contractAddrHex := r.PathValue("contract_address")
+	if contractAddrHex == "" {
+		http.Error(w, "Missing contract address in URL", http.StatusBadRequest)
+		return
+	}
+
+	// Parse contract address from hex
+	contractAddrBytes, err := hex.DecodeString(contractAddrHex)
+	if err != nil || len(contractAddrBytes) != 20 {
+		h.log.Error("Invalid contract address", "err", err, "address", contractAddrHex)
+		http.Error(w, "Invalid contract address format", http.StatusBadRequest)
+		return
+	}
+
+	var contractAddr interfaces.ContractAddress
+	copy(contractAddr[:], contractAddrBytes)
+
+	// Read CSR from request body
+	csr, err := io.ReadAll(r.Body)
+	if err != nil {
+		h.log.Error("Failed to read request body", "err", err)
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+
+	if len(csr) == 0 {
+		http.Error(w, "Empty CSR in request body", http.StatusBadRequest)
+		return
+	}
+
+	// Process the registration
+	response, err := h.handleRegister(r, contractAddr, csr)
+	if err != nil {
+		h.log.Error("Registration failed", "err", err,
+			"contractAddress", contractAddrHex)
+
+		// Return appropriate status code based on error type
+		if strings.Contains(err.Error(), "invalid") {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Return JSON response
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		h.log.Error("Failed to encode response", "err", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+}
+
+// handleRegister processes TEE instance registration requests and manages the overall registration flow.
+// It coordinates identity verification, cryptographic material preparation, and configuration resolution.
 //
 // Parameters:
-//   - ctx: Context for the operation
-//   - attestationType: Type of attestation
-//   - measurements: Map of measurement registers and their values
-//   - contractAddress: Contract address for the application
+//   - r: HTTP request containing attestation evidence
+//   - contractAddr: Contract address identifying the application
 //   - csr: Certificate Signing Request in PEM format
 //
-// The function performs dual authorization:
-//  1. TEE Identity Verification: Computes an identity hash from attestation evidence
-//     and verifies it against the on-chain registry.
-//  2. Optional Operator Authorization: If the CSR contains an operator signature
-//     extension (OID api.OIDOperatorSignature), the function extracts and validates
-//     the operator's Ethereum address and passes on to on-chain contract for authorization.
-//
 // Returns:
-//   - Application private key
-//   - Signed TLS certificate
-//   - Instance configuration
-//   - Error if registration fails
-func (h *Handler) handleRegister(ctx context.Context, attestationType string, measurements map[int]string, contractAddr interfaces.ContractAddress, csr interfaces.TLSCSR) (interfaces.AppPrivkey, interfaces.TLSCert, interfaces.InstanceConfig, error) {
+//   - Application private key for secret decryption
+//   - Signed TLS certificate for secure communication
+//   - Resolved instance configuration with all references and secrets processed
+//   - Error if any step of the registration process fails
+func (h *Handler) handleRegister(r *http.Request, contractAddr interfaces.ContractAddress, csr interfaces.TLSCSR) (api.RegistrationResponse, error) {
 	// Get the registry for this contract
 	registry, err := h.registryFactory.RegistryFor(contractAddr)
 	if err != nil {
-		h.log.Error("Failed to get registry for contract", "err", err, slog.String("contractAddress", string(contractAddr[:])))
-		return nil, nil, nil, fmt.Errorf("registry access error: %w", err)
+		h.log.Debug("Failed to get registry for contract", "err", err, slog.String("contractAddress", string(contractAddr[:])))
+		return api.RegistrationResponse{}, fmt.Errorf("registry access error: %w", err)
+	}
+
+	// Extract workload identity and operator identity from attestation evidence and CSR
+	identity, operatorAddress, err := h.parseWorkloadAndOperatorIdentity(r, registry, csr)
+	if err != nil {
+		return api.RegistrationResponse{}, fmt.Errorf("could not parse identity from request: %w", err)
+	}
+
+	identityAllowed, err := registry.IdentityAllowed(identity, operatorAddress)
+	if err != nil {
+		return api.RegistrationResponse{}, fmt.Errorf("could not verify identity is allowed: %w", err)
+	}
+	if !identityAllowed {
+		return api.RegistrationResponse{}, fmt.Errorf("identity not allowed")
+	}
+
+	// Prepare cryptographic materials (app private key and TLS certificate)
+	appPrivkey, tlsCert, err := h.prepareAppMaterials(contractAddr, csr)
+	if err != nil {
+		return api.RegistrationResponse{}, err
+	}
+
+	// Get config template hash for this identity, validating both TEE identity and operator if provided
+	configTemplateHash, err := registry.IdentityConfigMap(identity, operatorAddress)
+	if err != nil {
+		return api.RegistrationResponse{}, fmt.Errorf("config lookup error for %x: %w", identity, err)
+	}
+
+	var processedConfig interfaces.InstanceConfig
+	if configTemplateHash != [32]byte{} {
+		// Resolve configuration template with all references
+		processedConfig, err = h.resolveConfiguration(r.Context(), registry, configTemplateHash, contractAddr, appPrivkey)
+		if err != nil {
+			return api.RegistrationResponse{}, fmt.Errorf("could not process config: %w", err)
+		}
+	}
+
+	return api.RegistrationResponse{AppPrivkey: appPrivkey, TLSCert: tlsCert, Config: processedConfig}, nil
+}
+
+// parseWorkloadAndOperatorIdentity extracts workload identity from attestation measurements
+// and operator address from CSR signature extension if present. It performs the first phase of
+// the dual authorization process by validating the TEE attestation evidence and extracting any
+// operator signature.
+//
+// Parameters:
+//   - r: HTTP request containing attestation headers
+//   - registry: Application governance contract
+//   - csr: Certificate Signing Request potentially containing operator signature
+//
+// Returns:
+//   - Computed identity hash from attestation data
+//   - Recovered operator Ethereum address (zero if no signature present)
+//   - Error if attestation verification or signature recovery fails
+func (h *Handler) parseWorkloadAndOperatorIdentity(r *http.Request, registry interfaces.OnchainRegistry, csr interfaces.TLSCSR) ([32]byte, [20]byte, error) {
+	// Extract attestation type and measurements from ATLS headers
+	attestationType, measurements, err := cryptoutils.MeasurementsFromATLS(r)
+	if err != nil {
+		return [32]byte{}, [20]byte{}, fmt.Errorf("invalid measurements: %w", err)
 	}
 
 	// Calculate identity from attestation
 	identity, err := api.AttestationToIdentity(attestationType, measurements, registry)
 	if err != nil {
-		h.log.Error("Failed to compute identity", "err", err, slog.String("attestationType", attestationType))
-		return nil, nil, nil, fmt.Errorf("identity computation error: %w", err)
+		h.log.Debug("Failed to compute identity", "err", err, slog.String("attestationType", attestationType.StringID))
+		return [32]byte{}, [20]byte{}, fmt.Errorf("identity computation error: %w", err)
 	}
 
 	// Parse CSR to extract any operator signature extensions
 	parsedCsr, err := csr.GetX509CSR()
 	if err != nil {
 		h.log.Error("Failed to parse csr", "err", err)
-		return nil, nil, nil, fmt.Errorf("csr parsing error: %w", err)
+		return [32]byte{}, [20]byte{}, fmt.Errorf("csr parsing error: %w", err)
 	}
 
 	// Extract operator address from signature extension if present
-	// This is used for additional authorization beyond the TEE attestation
 	var operatorAddress [20]byte
 	for _, ext := range parsedCsr.Extensions {
 		if ext.Id.Equal(api.OIDOperatorSignature) {
 			// Recover Ethereum address from signature over the CSR's public key
 			pubkey, err := crypto.SigToPub(cryptoutils.DERPubkeyHash(parsedCsr.RawSubjectPublicKeyInfo), ext.Value)
 			if err != nil {
-				h.log.Error("Failed to recover signer from operator signature", "err", err)
-				return nil, nil, nil, fmt.Errorf("operator signature verification error: %w", err)
+				h.log.Debug("Failed to recover signer from operator signature", "err", err)
+				return [32]byte{}, [20]byte{}, fmt.Errorf("operator signature verification error: %w", err)
 			}
 			// Convert public key to Ethereum address
 			operatorAddress = crypto.PubkeyToAddress(*pubkey)
-			h.log.Info("Operator signature present", "operator", hex.EncodeToString(operatorAddress[:]))
+			h.log.Debug("Operator signature present", "operator", hex.EncodeToString(operatorAddress[:]))
 		}
 	}
 
-	// Get config template hash for this identity, validating both TEE identity and operator if provided
-	// If operatorAddress is empty (no signature), authorization is based solely on TEE identity
-	configTemplateHash, err := registry.IdentityConfigMap(identity, operatorAddress)
-	if err != nil {
-		h.log.Error("Failed to get config template hash", "err", err,
-			slog.String("identity", string(identity[:])),
-			slog.String("operator", hex.EncodeToString(operatorAddress[:])))
-		return nil, nil, nil, fmt.Errorf("config lookup error for %x: %w", identity, err)
-	}
+	return identity, operatorAddress, nil
+}
 
-	if configTemplateHash == [32]byte{} {
-		h.log.Error("No config template assigned to identity", slog.String("identity", string(identity[:])))
-		return nil, nil, nil, errors.New("no config template assigned to identity")
-	}
-
+// prepareAppMaterials retrieves the application private key and creates a signed TLS certificate.
+// It interacts with the KMS to obtain the cryptographic materials needed for the TEE instance
+// to function securely.
+//
+// Parameters:
+//   - contractAddr: Contract address identifying the application
+//   - csr: Certificate Signing Request to be signed by the application CA
+//
+// Returns:
+//   - Application private key for secret decryption
+//   - Signed TLS certificate for secure communication
+//   - Error if key retrieval or certificate signing fails
+func (h *Handler) prepareAppMaterials(contractAddr interfaces.ContractAddress, csr interfaces.TLSCSR) (interfaces.AppPrivkey, interfaces.TLSCert, error) {
 	// Get application private key for this contract
 	appPrivkey, err := h.kms.GetAppPrivkey(contractAddr)
 	if err != nil {
-		h.log.Error("Failed to get app private key", "err", err, slog.String("contractAddress", string(contractAddr[:])))
-		return nil, nil, nil, fmt.Errorf("key retrieval error: %w", err)
+		return nil, nil, fmt.Errorf("key retrieval error: %w", err)
 	}
 
 	// Sign the CSR to create TLS certificate
 	tlsCert, err := h.kms.SignCSR(contractAddr, csr)
 	if err != nil {
-		h.log.Error("Failed to sign CSR", "err", err, slog.String("contractAddress", string(contractAddr[:])))
-		return nil, nil, nil, fmt.Errorf("certificate signing error: %w", err)
+		return nil, nil, fmt.Errorf("certificate signing error: %w", err)
 	}
 
+	return appPrivkey, tlsCert, nil
+}
+
+// resolveConfiguration fetches the configuration template and resolves all references.
+// It creates a multi-storage backend from registered locations, retrieves the configuration
+// template, and processes it by resolving all references and decrypting any secret references.
+//
+// Parameters:
+//   - ctx: Context for storage operations
+//   - registry: Registry interface for retrieving storage backend locations
+//   - configTemplateHash: Content hash of the configuration template to fetch
+//   - contractAddr: Contract address for creating TLS auth certificates
+//   - appPrivkey: Application private key for decrypting secret references
+//
+// Returns:
+//   - Fully resolved instance configuration with all references processed
+//   - Error if storage access, template retrieval, or reference processing fails
+func (h *Handler) resolveConfiguration(ctx context.Context, registry interfaces.OnchainRegistry, configTemplateHash [32]byte, contractAddr interfaces.ContractAddress, appPrivkey interfaces.AppPrivkey) (interfaces.InstanceConfig, error) {
 	// Get all storage backends from registry
 	backendLocations, err := registry.AllStorageBackends()
 	if err != nil {
-		h.log.Error("Failed to get storage backends", "err", err)
-		return nil, nil, nil, fmt.Errorf("storage backend retrieval error: %w", err)
+		return nil, fmt.Errorf("storage backend retrieval error: %w", err)
 	}
 
 	// Convert []string to []StorageBackendLocation for CreateMultiBackend
@@ -355,10 +389,46 @@ func (h *Handler) handleRegister(ctx context.Context, attestationType string, me
 		}
 	}
 
-	lazyTlsAuthCert := func() (tls.Certificate, error) {
-		// TODO: cache and move to a standalone structure
+	// Create client certificate generator function for authenticated backends
+	lazyTlsAuthCert := CreateTLSAuthCertGenerator(h.kms, contractAddr)
 
-		// Note: reusing app privkey here, might not be secure
+	// Create multi-storage backend
+	multiStorage, err := h.storageFactory.WithTLSAuth(lazyTlsAuthCert).CreateMultiBackend(locationURIs)
+	if err != nil {
+		h.log.Error("Failed to create multi-storage backend", "err", err)
+		return nil, fmt.Errorf("multi-storage creation error: %w", err)
+	}
+
+	// Fetch config template
+	configTemplate, err := multiStorage.Fetch(ctx, configTemplateHash, interfaces.ConfigType)
+	if err != nil {
+		h.log.Error("Failed to fetch config template", "err", err, slog.String("configHash", string(configTemplateHash[:])))
+		return nil, fmt.Errorf("config template retrieval error: %w", err)
+	}
+
+	// Process the config template - pass the app private key for decryption
+	processedConfig, err := h.processConfigTemplate(ctx, multiStorage, configTemplate, appPrivkey)
+	if err != nil {
+		h.log.Error("Failed to process config template", "err", err)
+		return nil, fmt.Errorf("config processing error: %w", err)
+	}
+
+	return processedConfig, nil
+}
+
+// CreateTLSAuthCertGenerator returns a function that generates a TLS client certificate
+// for authenticated storage backends like Vault. This generator function creates temporary
+// key pairs, issues certificate signing requests, and obtains signed certificates from
+// the KMS for authenticated access to storage backends.
+//
+// Parameter:
+//   - contractAddr: Contract address used as the Common Name in certificate requests
+//
+// Returns:
+//   - A generator function that produces TLS certificates when called
+func CreateTLSAuthCertGenerator(kms interfaces.KMS, contractAddr interfaces.ContractAddress) func() (tls.Certificate, error) {
+	return func() (tls.Certificate, error) {
+		// Generate a temporary key pair
 		tmpPrivateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 		if err != nil {
 			return tls.Certificate{}, err
@@ -388,36 +458,14 @@ func (h *Handler) handleRegister(ctx context.Context, attestationType string, me
 		// Encode the CSR in PEM format
 		csrPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER})
 
-		tlsCert, err := h.kms.SignCSR(contractAddr, csrPEM)
+		// Get signed certificate from KMS
+		tlsCert, err := kms.SignCSR(contractAddr, csrPEM)
 		if err != nil {
 			return tls.Certificate{}, err
 		}
 
 		return tls.X509KeyPair(tlsCert, keyPEM)
 	}
-
-	// Create multi-storage backend
-	multiStorage, err := h.storageFactory.WithTLSAuth(lazyTlsAuthCert).CreateMultiBackend(locationURIs)
-	if err != nil {
-		h.log.Error("Failed to create multi-storage backend", "err", err)
-		return nil, nil, nil, fmt.Errorf("multi-storage creation error: %w", err)
-	}
-
-	// Fetch config template
-	configTemplate, err := multiStorage.Fetch(ctx, configTemplateHash, interfaces.ConfigType)
-	if err != nil {
-		h.log.Error("Failed to fetch config template", "err", err, slog.String("configHash", string(configTemplateHash[:])))
-		return nil, nil, nil, fmt.Errorf("config template retrieval error: %w", err)
-	}
-
-	// Process the config template - pass the app private key for decryption
-	processedConfig, err := h.processConfigTemplate(ctx, multiStorage, configTemplate, appPrivkey)
-	if err != nil {
-		h.log.Error("Failed to process config template", "err", err)
-		return nil, nil, nil, fmt.Errorf("config processing error: %w", err)
-	}
-
-	return appPrivkey, tlsCert, processedConfig, nil
 }
 
 // Reference represents a reference to another content item in a configuration template.

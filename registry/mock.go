@@ -35,6 +35,12 @@ func (m *MockRegistry) AddArtifact(data []byte) ([32]byte, *types.Transaction, e
 	return args.Get(0).([32]byte), args.Get(1).(*types.Transaction), args.Error(2)
 }
 
+// IdentityAllowed mocks the IdentityAllowed method
+func (m *MockRegistry) IdentityAllowed(identity [32]byte, operator [20]byte) (bool, error) {
+	args := m.Called(identity, operator)
+	return args.Get(0).(bool), args.Error(1)
+}
+
 // IdentityConfigMap mocks the IdentityConfigMap method
 func (m *MockRegistry) IdentityConfigMap(identity [32]byte, operator [20]byte) ([32]byte, error) {
 	args := m.Called(identity, operator)
@@ -47,15 +53,9 @@ func (m *MockRegistry) GetArtifact(artifactHash [32]byte) ([]byte, error) {
 	return args.Get(0).([]byte), args.Error(1)
 }
 
-// SetConfigForDCAP mocks the SetConfigForDCAP method
-func (m *MockRegistry) SetConfigForDCAP(report *interfaces.DCAPReport, configHash [32]byte) (*types.Transaction, error) {
-	args := m.Called(report, configHash)
-	return args.Get(0).(*types.Transaction), args.Error(1)
-}
-
-// SetConfigForMAA mocks the SetConfigForMAA method
-func (m *MockRegistry) SetConfigForMAA(report *interfaces.MAAReport, configHash [32]byte) (*types.Transaction, error) {
-	args := m.Called(report, configHash)
+// SetConfigForIdentity mocks the SetConfigForDCAP method
+func (m *MockRegistry) SetConfigForIdentity(identity [32]byte, configHash [32]byte) (*types.Transaction, error) {
+	args := m.Called(identity, configHash)
 	return args.Get(0).(*types.Transaction), args.Error(1)
 }
 

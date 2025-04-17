@@ -5,21 +5,8 @@ import (
 	"encoding/asn1"
 	"fmt"
 
+	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
-)
-
-const (
-	// AttestationTypeHeader specifies the TEE attestation mechanism used.
-	// Supported values: "azure-tdx", "qemu-tdx"
-	AttestationTypeHeader = "X-Flashbots-Attestation-Type"
-
-	// MeasurementHeader contains a JSON-encoded map of measurement values.
-	// Format: {"0":"00", "1":"01", ...} mapping register index to hex value.
-	MeasurementHeader = "X-Flashbots-Measurement"
-
-	// Supported attestation types
-	AzureTDX = "azure-tdx" // Azure confidential computing with TDX
-	QemuTDX  = "qemu-tdx"  // Any DCAP-compatible TDX implementation
 )
 
 // RegistrationProvider defines the interface for TEE instance registration services.
@@ -84,16 +71,16 @@ var OIDOperatorSignature asn1.ObjectIdentifier = asn1.ObjectIdentifier{1, 3, 6, 
 // It uses the appropriate computation method based on attestation type.
 //
 // Parameters:
-//   - attestationType: The type of attestation (AzureTDX or QemuTDX)
+//   - attestationType: The type of attestation (MAA or DCAP)
 //   - measurements: Map of measurement registers and their values
 //   - registry: Registry client for computing identity hashes
 //
 // Returns:
 //   - The computed identity hash
 //   - Error if attestation type is unsupported or computation fails
-func AttestationToIdentity(attestationType string, measurements map[int]string, registry interfaces.OnchainRegistry) ([32]byte, error) {
-	switch attestationType {
-	case AzureTDX:
+func AttestationToIdentity(attestationType cryptoutils.AttestationType, measurements map[int]string, registry interfaces.OnchainRegistry) ([32]byte, error) {
+	switch attestationType.StringID {
+	case cryptoutils.MAAAttestation.StringID:
 		// For MAA the measurements are simply the PCRs encoded as map[uint32][]byte
 		maaReport := &interfaces.MAAReport{}
 		for i, v := range measurements {
@@ -104,7 +91,7 @@ func AttestationToIdentity(attestationType string, measurements map[int]string, 
 		}
 		identity, err := registry.ComputeMAAIdentity(maaReport)
 		return identity, err
-	case QemuTDX:
+	case cryptoutils.DCAPAttestation.StringID:
 		// For DCAP the measurements are RTMRs and MRTD encoded as map[uint32][]byte
 		dcapReport, err := interfaces.DCAPReportFromMeasurement(measurements)
 		if err != nil {

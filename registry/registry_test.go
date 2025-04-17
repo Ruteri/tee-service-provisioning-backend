@@ -102,13 +102,12 @@ func TestRegistryContract_ArtifactAndIdentity(t *testing.T) {
 		},
 	}
 
-	_, err = regClient.SetConfigForDCAP(dcapReport, artifactHash)
-	assert.NoError(t, err)
-	backend.Commit()
-
-	// Calculate the identity for this report
+	// Calculate and set the identity for this report
 	identity, err := regClient.ComputeDCAPIdentity(dcapReport)
 	assert.NoError(t, err)
+	_, err = regClient.SetConfigForIdentity(identity, artifactHash)
+	assert.NoError(t, err)
+	backend.Commit()
 
 	// Verify artifact mapping
 	mappedArtifact, err := regClient.IdentityConfigMap(identity, auth.From)

@@ -17,28 +17,28 @@ import (
 
 var (
 	DCAPAttestation = AttestationType{
-		OID: asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 66704, 98645, 1},
-		StringID: "dcap",
+		OID:      asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 66704, 98645, 1},
+		StringID: "qemu-tdx",
 	}
 
 	MAAAttestation = AttestationType{
-		OID: asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 66704, 98645, 2},
-		StringID: "maa",
+		OID:      asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 66704, 98645, 2},
+		StringID: "azure-tdx",
 	}
 
 	DummyAttestation = AttestationType{
-		OID: asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 66704, 98645, 404},
+		OID:      asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 66704, 98645, 404},
 		StringID: "dummy",
 	}
 )
 
 type AttestationType struct {
-	OID asn1.ObjectIdentifier
+	OID      asn1.ObjectIdentifier
 	StringID string
 }
 
 func AttestationTypeFromString(str string) (AttestationType, error) {
-	switch (str) {
+	switch str {
 	case DCAPAttestation.StringID:
 		return DCAPAttestation, nil
 	case MAAAttestation.StringID:
@@ -58,7 +58,6 @@ func AttestationTypeFromOID(oid asn1.ObjectIdentifier) (AttestationType, error) 
 
 	return AttestationType{}, errors.ErrUnsupported
 }
-
 
 type AttestationProvider interface {
 	AttestationType() AttestationType
@@ -103,7 +102,7 @@ func (p *RemoteAttestationProvider) Attest(reportData [64]byte) ([]byte, error) 
 	return rawQuote, nil
 }
 
-type DCAPAttestationProvider struct {}
+type DCAPAttestationProvider struct{}
 
 func (DCAPAttestationProvider) AttestationType() AttestationType { return DCAPAttestation }
 
@@ -113,7 +112,7 @@ func (DCAPAttestationProvider) Attest(reportData [64]byte) ([]byte, error) {
 		return qp.GetRawQuote(reportData)
 	}
 
-	qd, err :=  tdx_client.OpenDevice()
+	qd, err := tdx_client.OpenDevice()
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +123,6 @@ func (DCAPAttestationProvider) Attest(reportData [64]byte) ([]byte, error) {
 
 type DumyAttestationProvider struct{}
 
-	
 func (DumyAttestationProvider) AttestationType() AttestationType {
 	return DummyAttestation
 }

@@ -114,6 +114,11 @@ func (c *OnchainRegistryClient) ComputeMAAIdentity(report *interfaces.MAAReport)
 	return c.contract.MAAIdentity(opts, contractReport)
 }
 
+func (c *OnchainRegistryClient) IdentityAllowed(identity [32]byte, operator [20]byte) (bool, error) {
+	opts := &bind.CallOpts{Context: context.Background()}
+	return c.contract.IdentityAllowed(opts, identity, operator)
+}
+
 // IdentityConfigMap gets the config hash assigned to an identity in the registry.
 func (c *OnchainRegistryClient) IdentityConfigMap(identity [32]byte, address [20]byte) ([32]byte, error) {
 	opts := &bind.CallOpts{Context: context.Background()}
@@ -191,6 +196,17 @@ func (c *OnchainRegistryClient) GetArtifact(artifactHash [32]byte) ([]byte, erro
 	opts := &bind.CallOpts{Context: context.Background()}
 
 	return c.contract.GetArtifact(opts, artifactHash)
+}
+
+// SetConfigForIdentity associates an artifact with an identity.
+// Returns the transaction and any error that occurred.
+func (c *OnchainRegistryClient) SetConfigForIdentity(identity [32]byte, artifactHash [32]byte) (*types.Transaction, error) {
+	if c.auth == nil {
+		return nil, ErrNoTransactOpts
+	}
+
+	tx, err := c.contract.SetConfigForIdentity(c.auth, identity, artifactHash)
+	return tx, err
 }
 
 // SetConfigForDCAP associates an artifact with a DCAP-attested identity.

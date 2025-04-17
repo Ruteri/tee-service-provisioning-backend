@@ -28,16 +28,16 @@
 //
 // Example usage with SimpleKMS:
 //
-//     registry-server --rpc-addr=http://localhost:8545 \
-//         --listen-addr=0.0.0.0:8080 \
-//         --kms-type=simple \
-//         --simple-kms-seed=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+//	registry-server --rpc-addr=http://localhost:8545 \
+//	    --listen-addr=0.0.0.0:8080 \
+//	    --kms-type=simple \
+//	    --simple-kms-seed=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 //
 // Example usage with ShamirKMS:
 //
-//     registry-server --rpc-addr=http://localhost:8545 \
-//         --listen-addr=0.0.0.0:8080 \
-//         --kms-type=shamir \
-//         --shamirkms-admin-keys-file=./shamir-admins.json \
-//         --shamirkms-listen-addr=0.0.0.0:8081
+//	registry-server --rpc-addr=http://localhost:8545 \
+//	    --listen-addr=0.0.0.0:8080 \
+//	    --kms-type=shamir \
+//	    --shamirkms-admin-keys-file=./shamir-admins.json \
+//	    --shamirkms-listen-addr=0.0.0.0:8081
 package main
