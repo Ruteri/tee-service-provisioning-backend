@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -12,10 +11,6 @@ import (
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 	"github.com/urfave/cli/v2"
-
-	tdx_abi "github.com/google/go-tdx-guest/abi"
-	tdx_pb "github.com/google/go-tdx-guest/proto/tdx"
-	"github.com/google/go-tdx-guest/verify"
 )
 
 var flagServerAddr *cli.StringFlag = &cli.StringFlag{
@@ -137,45 +132,11 @@ func (c *Client) GetAppMetadata() error {
 	encodedResp, _ := json.Marshal(parsedResponse)
 	fmt.Println(string(encodedResp))
 
-	err = VerifyDCAPAttestation(c.AppContract, parsedResponse)
+	expectedReportData := api.ReportData(c.AppContract, parsedResponse.CACert, parsedResponse.AppPubkey)
+	_, err = cryptoutils.VerifyDCAPAttestation(expectedReportData, parsedResponse.Attestation)
 	if err != nil {
 		return fmt.Errorf("metadata attestation verification failed: %w", err)
 	}
-
-	return nil
-}
-
-func VerifyDCAPAttestation(contractAddr interfaces.ContractAddress, resp *api.MetadataResponse) error {
-	protoQuote, err := tdx_abi.QuoteToProto(resp.Attestation)
-	if err != nil {
-		return fmt.Errorf("could not parse quote: %w", err)
-	}
-
-	v4Quote, err := func() (*tdx_pb.QuoteV4, error) {
-		switch q := protoQuote.(type) {
-		case *tdx_pb.QuoteV4:
-			return q, nil
-		default:
-			return nil, fmt.Errorf("unsupported quote type: %T", q)
-		}
-	}()
-	if err != nil {
-		return err
-	}
-
-	options := verify.DefaultOptions()
-	// TODO: fetch collateral before verifying to distinguish the error better
-	err = verify.TdxQuote(protoQuote, options)
-	if err != nil {
-		return fmt.Errorf("quote verification failed: %w", err)
-	}
-
-	expectedReportData := api.ReportData(contractAddr, resp.CACert, resp.AppPubkey)
-	if !bytes.Equal(v4Quote.TdQuoteBody.ReportData, expectedReportData[:]) {
-		return fmt.Errorf("invalid report data %x, expected %x", v4Quote.TdQuoteBody.ReportData, expectedReportData[:])
-	}
-
-	fmt.Println("attestation validation successful")
 
 	return nil
 }

@@ -209,7 +209,7 @@ func NewProvisioner(cCtx *cli.Context) (*Provisioner, error) {
 			return nil, fmt.Errorf("could not create a local kms: %w", err)
 		}
 		if cCtx.String("debug-local-kms-remote-attestaion-provider") != "" {
-			localKMS = localKMS.WithAttestationProvider(&kms.RemoteAttestationProvider{Address: cCtx.String("debug-local-kms-remote-attestaion-provider")})
+			localKMS = localKMS.WithAttestationProvider(&cryptoutils.RemoteAttestationProvider{Address: cCtx.String("debug-local-kms-remote-attestaion-provider")})
 		}
 		registrationProvider = &instanceutils.LocalKMSRegistrationProvider{KMS: localKMS}
 	}

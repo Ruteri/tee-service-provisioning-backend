@@ -18,6 +18,7 @@ import (
 	"github.com/ruteri/tee-service-provisioning-backend/api/server"
 	shamirkms "github.com/ruteri/tee-service-provisioning-backend/api/shamir-kms"
 	"github.com/ruteri/tee-service-provisioning-backend/common"
+	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 	"github.com/ruteri/tee-service-provisioning-backend/kms"
 	"github.com/ruteri/tee-service-provisioning-backend/registry"
@@ -189,7 +190,7 @@ func main() {
 					return err
 				}
 				if kmsRemoteAttestationProvider != "" {
-					simpleKms = simpleKms.WithAttestationProvider(&kms.RemoteAttestationProvider{Address: kmsRemoteAttestationProvider})
+					simpleKms = simpleKms.WithAttestationProvider(&cryptoutils.RemoteAttestationProvider{Address: kmsRemoteAttestationProvider})
 				}
 				kmsImpl = simpleKms
 			case "shamir":

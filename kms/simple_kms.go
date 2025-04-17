@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ruteri/tee-service-provisioning-backend/api"
+	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
 
@@ -25,13 +26,7 @@ type SimpleKMS struct {
 	masterKey []byte
 	mu        sync.RWMutex
 
-	attestationProvider AttestationProvider
-}
-
-type DumyAttestationProvider struct{}
-
-func (DumyAttestationProvider) Attest(userData [64]byte) ([]byte, error) {
-	return []byte(fmt.Sprintf("Attestation for CA %x", userData)), nil
+	attestationProvider cryptoutils.AttestationProvider
 }
 
 // NewSimpleKMS creates a new instance of SimpleKMS with the provided master key.
@@ -42,10 +37,10 @@ func NewSimpleKMS(masterKey []byte) (*SimpleKMS, error) {
 		return nil, errors.New("master key must be at least 32 bytes")
 	}
 
-	return &SimpleKMS{masterKey: masterKey, attestationProvider: DumyAttestationProvider{}}, nil
+	return &SimpleKMS{masterKey: masterKey, attestationProvider: &cryptoutils.DumyAttestationProvider{}}, nil
 }
 
-func (k *SimpleKMS) WithAttestationProvider(provider AttestationProvider) *SimpleKMS {
+func (k *SimpleKMS) WithAttestationProvider(provider cryptoutils.AttestationProvider) *SimpleKMS {
 	newkms := &SimpleKMS{
 		masterKey:           make([]byte, len(k.masterKey)),
 		attestationProvider: provider,

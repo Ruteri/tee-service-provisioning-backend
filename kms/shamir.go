@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/hashicorp/vault/shamir"
+	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
 
@@ -33,7 +34,7 @@ type ShamirKMS struct {
 	// For admin verification approach
 	adminPubKeys map[string]bool // Map of allowed admin public key fingerprints
 
-	attestationProvider AttestationProvider
+	attestationProvider cryptoutils.AttestationProvider
 }
 
 func (k *ShamirKMS) SimpleKMS() *SimpleKMS {
@@ -101,11 +102,11 @@ func NewShamirKMSRecovery(threshold int) *ShamirKMS {
 		threshold:           threshold,
 		receivedShares:      make(map[int][]byte),
 		adminPubKeys:        make(map[string]bool),
-		attestationProvider: DumyAttestationProvider{},
+		attestationProvider: cryptoutils.DumyAttestationProvider{},
 	}
 }
 
-func (k *ShamirKMS) SetAttestationProvider(provider AttestationProvider) *ShamirKMS {
+func (k *ShamirKMS) SetAttestationProvider(provider cryptoutils.AttestationProvider) *ShamirKMS {
 	k.attestationProvider = provider
 	return k
 }
