@@ -1,13 +1,13 @@
 package main
 
 import (
-	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -31,86 +31,107 @@ import (
 
 var provisionerFlags []cli.Flag = []cli.Flag{
 	&cli.StringFlag{
-		Name:  "provisioning-server-addr",
-		Value: "http://127.0.0.1:8080",
-		Usage: "Provisioning server address to request",
+		Name:    "provisioning-server-addr",
+		Value:   "http://127.0.0.1:8080",
+		Usage:   "Provisioning server address to request",
+		EnvVars: []string{"PROVISIONING_SERVER_ADDR"},
 	},
 	&cli.StringFlag{
 		Name:     "app-contract",
 		Required: true,
 		Usage:    "Application governance contract address to request provisioning for",
+		EnvVars:  []string{"APP_CONTRACT"},
 	},
 }
 
 var operatorFlags []cli.Flag = []cli.Flag{
 	&cli.BoolFlag{
-		Name:  "await-operator-signature",
-		Usage: "If set, script will pause and wait for operator to provide their signature over CSR",
+		Name:    "await-operator-signature",
+		Usage:   "If set, script will pause and wait for operator to provide their signature over CSR",
+		EnvVars: []string{"AWAIT_OPERATOR_SIGNATURE"},
 	},
 	&cli.StringFlag{
-		Name:  "operator-signature-listen-addr",
-		Value: "http://127.0.0.1:8082",
-		Usage: "Listen address for signature",
+		Name:    "operator-signature-listen-addr",
+		Value:   "http://127.0.0.1:8082",
+		Usage:   "Listen address for signature",
+		EnvVars: []string{"OPERATOR_SIGNATURE_LISTEN_ADDR"},
 	},
 }
 
 var debugFlags []cli.Flag = []cli.Flag{
 	&cli.BoolFlag{
-		Name:  "debug-local-provider",
-		Usage: "If provided the provisioner will use a dummy provider instead of a remote one",
+		Name:    "debug-local-provider",
+		Usage:   "If provided the provisioner will use a dummy provider instead of a remote one",
+		EnvVars: []string{"DEBUG_LOCAL_PROVIDER"},
 	},
 	&cli.BoolFlag{
-		Name:  "debug-local-kms-remote-attestaion-provider",
-		Usage: "Address to use for remote attestations (dummy dcap) with local kms",
+		Name:    "debug-local-kms-remote-attestaion-provider",
+		Usage:   "Address to use for remote attestations (dummy dcap) with local kms",
+		EnvVars: []string{"DEBUG_LOCAL_KMS_REMOTE_ATTESTATION_PROVIDER"},
 	},
 	&cli.StringFlag{
-		Name:  "debug-set-attestation-type-header",
-		Usage: "If provided the provisioner will set the attestation type header",
+		Name:    "debug-set-attestation-type-header",
+		Usage:   "If provided the provisioner will set the attestation type header",
+		EnvVars: []string{"DEBUG_SET_ATTESTATION_TYPE_HEADER"},
 	},
 	&cli.StringFlag{
-		Name:  "debug-set-attestation-measurement-header",
-		Usage: "If provided the provisioner will set the attestation measurement header",
+		Name:    "debug-set-attestation-measurement-header",
+		Usage:   "If provided the provisioner will set the attestation measurement header",
+		EnvVars: []string{"DEBUG_SET_ATTESTATION_MEASUREMENT_HEADER"},
 	},
 }
 
 var diskFlags []cli.Flag = []cli.Flag{
 	&cli.StringFlag{
-		Name:  "mount-point",
-		Value: "/persistent",
-		Usage: "path to mount (decrypted) persistent disk on",
+		Name:    "mount-point",
+		Value:   "/persistent",
+		Usage:   "path to mount (decrypted) persistent disk on",
+		EnvVars: []string{"MOUNT_POINT"},
 	},
 	&cli.StringFlag{
-		Name:  "device-glob",
-		Value: "/dev/disk/by-path/*scsi-0:0:0:10",
-		Usage: "Device glob pattern",
+		Name:    "device-glob",
+		Value:   "/dev/disk/by-path/*scsi-0:0:0:10",
+		Usage:   "Device glob pattern",
+		EnvVars: []string{"DEVICE_GLOB"},
 	},
 	&cli.StringFlag{
-		Name:  "mapper-name",
-		Value: "cryptdisk",
-		Usage: "Mapper name for encrypted persistent disk",
+		Name:    "mapper-name",
+		Value:   "cryptdisk",
+		Usage:   "Mapper name for encrypted persistent disk",
+		EnvVars: []string{"MAPPER_NAME"},
 	},
 	&cli.StringFlag{
-		Name:  "mapper-device",
-		Usage: "Mapper device to use. If unset defaults to '/dev/mapper/<mapper name>'",
+		Name:    "mapper-device",
+		Usage:   "Mapper device to use. If unset defaults to '/dev/mapper/<mapper name>'",
+		EnvVars: []string{"MAPPER_DEVICE"},
 	},
 }
 
 var filesFlags []cli.Flag = []cli.Flag{
 	&cli.StringFlag{
-		Name:  "config-file",
-		Usage: "path to store resolved config file at. Defaults to <mount point>/autoprovisioning/config",
+		Name:    "config-file",
+		Usage:   "path to store resolved config file at. Defaults to <mount point>/autoprovisioning/config",
+		EnvVars: []string{"CONFIG_FILE"},
 	},
 	&cli.StringFlag{
-		Name:  "tls-cert-file",
-		Usage: "path to store tls cert file at. Defaults to <mount point>/autoprovisioning/tls.cert",
+		Name:    "tls-cert-file",
+		Usage:   "path to store tls cert file at. Defaults to <mount point>/autoprovisioning/cert.pem",
+		EnvVars: []string{"TLS_CERT_FILE"},
 	},
 	&cli.StringFlag{
-		Name:  "tls-key-file",
-		Usage: "path to store tls key file at. Defaults to <mount point>/autoprovisioning/tls.key",
+		Name:    "tls-key-file",
+		Usage:   "path to store tls key file at. Defaults to <mount point>/autoprovisioning/key.pem",
+		EnvVars: []string{"TLS_KEY_FILE"},
 	},
 	&cli.StringFlag{
-		Name:  "app-privkey-file",
-		Usage: "path to store app key (secrets deriviation) file at. Defaults to <mount point>/autoprovisioning/app.key",
+		Name:    "tls-cacert-file",
+		Usage:   "path to store tls ca cert (application's CA cert) file at. Defaults to <mount point>/autoprovisioning/cacert.pem",
+		EnvVars: []string{"TLS_CACERT_FILE"},
+	},
+	&cli.StringFlag{
+		Name:    "app-privkey-file",
+		Usage:   "path to store app key (secrets deriviation) file at. Defaults to <mount point>/autoprovisioning/app_privkey.pem",
+		EnvVars: []string{"APP_PRIVKEY_FILE"},
 	},
 }
 
@@ -147,11 +168,13 @@ type Provisioner struct {
 	ConfigFilePath string
 	TLSCertPath    string
 	TLSKeyPath     string
+	TLSCACertPath  string
 	AppPrivkeyPath string
 
 	OperatorSignatureConfig OperatorSignatureConfig
 
 	RegistrationProvider api.RegistrationProvider
+	MetadataProvider     api.MetadataProvider
 }
 
 type OperatorSignatureConfig struct {
@@ -178,17 +201,22 @@ func NewProvisioner(cCtx *cli.Context) (*Provisioner, error) {
 
 	tlsCertFile := cCtx.String("tls-cert-file")
 	if tlsCertFile == "" {
-		tlsCertFile = mountPoint + "/autoprovisioning/tls.cert"
+		tlsCertFile = mountPoint + "/autoprovisioning/cert.pem"
+	}
+
+	tlsCACertFile := cCtx.String("tls-cert-file")
+	if tlsCACertFile == "" {
+		tlsCACertFile = mountPoint + "/autoprovisioning/cacert.pem"
 	}
 
 	tlsKeyFile := cCtx.String("tls-key-file")
 	if tlsKeyFile == "" {
-		tlsKeyFile = mountPoint + "/autoprovisioning/tls.key"
+		tlsKeyFile = mountPoint + "/autoprovisioning/key.pem"
 	}
 
 	appKeyFile := cCtx.String("app-privkey-file")
 	if appKeyFile == "" {
-		appKeyFile = mountPoint + "/autoprovisioning/app.key"
+		appKeyFile = mountPoint + "/autoprovisioning/app_privkey.pem"
 	}
 
 	appContract, err := interfaces.NewContractAddressFromHex(cCtx.String("app-contract"))
@@ -197,12 +225,15 @@ func NewProvisioner(cCtx *cli.Context) (*Provisioner, error) {
 	}
 
 	var registrationProvider api.RegistrationProvider
+	var metadataProvider api.MetadataProvider
 	if !cCtx.Bool("debug-local-provider") {
-		registrationProvider = &provisioner.ProvisioningClient{
+		provisioningClient := &provisioner.ProvisioningClient{
 			ServerAddr:                cCtx.String("provisioning-server-addr"),
 			SetAttestationType:        cCtx.String("debug-set-attestation-type-header"),
 			SetAttestationMeasurement: cCtx.String("debug-set-attestation-measurement-header"),
 		}
+		registrationProvider = provisioningClient
+		metadataProvider = provisioningClient
 	} else {
 		localKMS, err := kms.NewSimpleKMS(make([]byte, 32))
 		if err != nil {
@@ -211,7 +242,9 @@ func NewProvisioner(cCtx *cli.Context) (*Provisioner, error) {
 		if cCtx.String("debug-local-kms-remote-attestaion-provider") != "" {
 			localKMS = localKMS.WithAttestationProvider(&cryptoutils.RemoteAttestationProvider{Address: cCtx.String("debug-local-kms-remote-attestaion-provider")})
 		}
-		registrationProvider = &instanceutils.LocalKMSRegistrationProvider{KMS: localKMS}
+		localProvider := &instanceutils.LocalKMSRegistrationProvider{KMS: localKMS}
+		registrationProvider = localProvider
+		metadataProvider = localProvider
 	}
 
 	return &Provisioner{
@@ -225,13 +258,45 @@ func NewProvisioner(cCtx *cli.Context) (*Provisioner, error) {
 		ConfigFilePath: configFile,
 		TLSCertPath:    tlsCertFile,
 		TLSKeyPath:     tlsKeyFile,
+		TLSCACertPath:  tlsCACertFile,
 		AppPrivkeyPath: appKeyFile,
 		OperatorSignatureConfig: OperatorSignatureConfig{
 			Enabled:    cCtx.Bool("await-operator-signature"),
 			ListenAddr: cCtx.String("operator-signature-listen-addr"),
 		},
 		RegistrationProvider: registrationProvider,
+		MetadataProvider:     metadataProvider,
 	}, nil
+}
+
+type DiskLabel [8]byte
+
+func (d DiskLabel) String() string {
+	return hex.EncodeToString(d[:])
+}
+
+func DiskLabelFromString(data string) (DiskLabel, error) {
+	labelBytes, err := hex.DecodeString(data)
+	if err != nil {
+		return DiskLabel{}, err
+	}
+	if len(labelBytes) != 8 {
+		return DiskLabel{}, errors.New("invalid disk label length")
+	}
+
+	var label DiskLabel
+	copy(label[:], labelBytes)
+
+	return label, nil
+}
+
+func RandomDiskLabel() (DiskLabel, error) {
+	var diskLabel DiskLabel
+	_, err := rand.Read(diskLabel[:])
+	if err != nil {
+		return DiskLabel{}, err
+	}
+	return diskLabel, nil
 }
 
 func (p *Provisioner) Do() error {
@@ -240,110 +305,103 @@ func (p *Provisioner) Do() error {
 	}
 
 	CN := interfaces.NewAppCommonName(p.AppContract)
+	tlskey, certificate_request, err := CreateCertificateRequest(CN.String())
+	if err != nil {
+		return fmt.Errorf("could not create instance certificate request: %w", err)
+	}
+
+	// TODO: fetch MROWNER, MROWNERCONFIG, MRCONFIGID if present.
+
+	if p.OperatorSignatureConfig.Enabled {
+		certificate_request, err = p.OperatorSignatureConfig.AwaitCRSignature(tlskey, certificate_request)
+		if err != nil {
+			return fmt.Errorf("error while waiting for operator signature: %w", err)
+		}
+	}
+
+	tlskeyPem, csr, err := CreateCSR(tlskey, certificate_request)
+
+	parsedResponse, err := p.RegistrationProvider.Register(p.AppContract, csr)
+	if err != nil {
+		return fmt.Errorf("registration failed: %w", err)
+	}
+
+	if err = cryptoutils.VerifyCertificate(tlskeyPem, []byte(parsedResponse.TLSCert), CN.String()); err != nil {
+		return fmt.Errorf("invalid certificate in registration response: %w", err)
+	}
+
+	// TODO: we should use MRCONFIGOWNER or equivalent for disk label
+	// however, the actual guarantee with a random label is roughly
+	// equivalent as both are enforced by the infrastructure operator
 
 	if !isLuks(p.DiskConfig) {
 		// Brand new disk!
-		tlskey, certificate_request, err := CreateCertificateRequest(CN.String())
+		var err error
+		diskLabel, err := RandomDiskLabel()
 		if err != nil {
-			return fmt.Errorf("could not create instance certificate request: %w", err)
+			return fmt.Errorf("could not generate a random disk id")
 		}
 
-		if p.OperatorSignatureConfig.Enabled {
-			certificate_request, err = p.OperatorSignatureConfig.AwaitCRSignature(tlskey, certificate_request)
-			if err != nil {
-				return fmt.Errorf("error while waiting for operator signature: %w", err)
-			}
-		}
-
-		tlskeyPem, csr, err := CreateCSR(tlskey, certificate_request)
-
-		parsedResponse, err := p.RegistrationProvider.Register(p.AppContract, csr)
-		if err != nil {
-			return fmt.Errorf("registration failed: %w", err)
-		}
-
-		diskKey := cryptoutils.DeriveDiskKey(csr, []byte(parsedResponse.AppPrivkey))
-
-		if err = cryptoutils.VerifyCertificate(tlskeyPem, []byte(parsedResponse.TLSCert), CN.String()); err != nil {
-			return fmt.Errorf("invalid certificate in registration response: %w", err)
-		}
+		diskKey := cryptoutils.DeriveDiskKey(diskLabel[:], []byte(parsedResponse.AppPrivkey))
 
 		err = setupNewDisk(p.DiskConfig, diskKey)
 		if err != nil {
 			return fmt.Errorf("disk setup failed: %w", err)
 		}
 
-		// Create directory structure with proper permissions
-		provisioningDir := filepath.Dir(p.ConfigFilePath)
-		if err := os.MkdirAll(provisioningDir, 0700); err != nil {
-			return fmt.Errorf("failed to create provisioning directory: %w", err)
-		}
-
-		err = writeMetadataToLUKS(p.DiskConfig, LUKS_TOKEN_ID_CSR, string(csr))
+		err = writeMetadataToLUKS(p.DiskConfig, LUKS_TOKEN_ID_DISK_LABEL, diskLabel.String())
 		if err != nil {
 			cleanupMount(p.DiskConfig)
 			return fmt.Errorf("failed to write metadata to LUKS: %w", err)
 		}
-
-		// Write files with error handling
-		fileWrites := []struct {
-			path    string
-			content []byte
-			mode    os.FileMode
-		}{
-			{p.ConfigFilePath, []byte(parsedResponse.Config), 0600},
-			{p.TLSCertPath, []byte(parsedResponse.TLSCert), 0600},
-			{p.AppPrivkeyPath, []byte(parsedResponse.AppPrivkey), 0600},
-			{p.TLSKeyPath, tlskeyPem, 0600},
-		}
-
-		for _, fw := range fileWrites {
-			if err := os.WriteFile(fw.path, fw.content, fw.mode); err != nil {
-				cleanupMount(p.DiskConfig)
-				return fmt.Errorf("failed to write %s: %w", fw.path, err)
-			}
-		}
 	} else {
 		// Mounting already provisioned disk
-		csrString, err := readMetadataFromLUKS(p.DiskConfig, LUKS_TOKEN_ID_CSR)
+		diskLabelString, err := readMetadataFromLUKS(p.DiskConfig, LUKS_TOKEN_ID_DISK_LABEL)
 		if err != nil {
 			return fmt.Errorf("failed to read metadata from LUKS: %w", err)
 		}
 
-		parsedResponse, err := p.RegistrationProvider.Register(p.AppContract, []byte(csrString))
+		diskLabel, err := DiskLabelFromString(diskLabelString)
 		if err != nil {
-			return fmt.Errorf("registration failed: %w", err)
+			return fmt.Errorf("failed to read disk label from LUKS: %w", err)
 		}
 
-		diskKey := cryptoutils.DeriveDiskKey([]byte(csrString), []byte(parsedResponse.AppPrivkey))
+		diskKey := cryptoutils.DeriveDiskKey(diskLabel[:], []byte(parsedResponse.AppPrivkey))
 
 		if err = mountExistingDisk(p.DiskConfig, diskKey); err != nil {
 			return fmt.Errorf("disk mounting failed: %w", err)
 		}
+	}
 
-		// Make sure data on disk matches what we received
-		appPrivkeyBytes, err := os.ReadFile(p.AppPrivkeyPath)
-		if err != nil {
-			return errors.New("misconfigured application: app privkey does not exist, refusing to continue")
-		}
-		if !bytes.Equal(appPrivkeyBytes, []byte(parsedResponse.AppPrivkey)) {
-			return errors.New("misconfigured application: app privkey does not match, refusing to continue")
-		}
+	pki, err := p.MetadataProvider.GetAppMetadata(p.AppContract)
+	if err != nil {
+		return fmt.Errorf("could not get app metadata: %w", err)
+	}
 
-		tlsKey, err := os.ReadFile(p.TLSKeyPath)
-		if err != nil {
-			return fmt.Errorf("could note read tls key for verification: %w, refusing to continue", err)
-		}
+	// Create directory structure with proper permissions
+	provisioningDir := filepath.Dir(p.ConfigFilePath)
+	if err := os.MkdirAll(provisioningDir, 0700); err != nil {
+		return fmt.Errorf("failed to create provisioning directory: %w", err)
+	}
 
-		if err = cryptoutils.VerifyCertificate(tlsKey, []byte(parsedResponse.TLSCert), CN.String()); err != nil {
-			return fmt.Errorf("certificate verification failed: %w, refusing to continue", err)
-		}
+	// Write files with error handling
+	fileWrites := []struct {
+		path    string
+		content []byte
+		mode    os.FileMode
+	}{
+		{p.ConfigFilePath, []byte(parsedResponse.Config), 0600},
+		{p.TLSCertPath, []byte(parsedResponse.TLSCert), 0600},
+		{p.AppPrivkeyPath, []byte(parsedResponse.AppPrivkey), 0600},
+		{p.TLSKeyPath, tlskeyPem, 0600},
+		{p.TLSCACertPath, pki.CACert, 0666},
+	}
 
-		if err = os.WriteFile(p.ConfigFilePath, []byte(parsedResponse.Config), 0600); err != nil {
-			return fmt.Errorf("could not overwrite config file: %w", err)
-		}
-		if err = os.WriteFile(p.TLSCertPath, []byte(parsedResponse.TLSCert), 0600); err != nil {
-			return fmt.Errorf("could not overwrite tls certificate: %w", err)
+	for _, fw := range fileWrites {
+		// TODO: we should force the perms as well as overwriting
+		if err := os.WriteFile(fw.path, fw.content, fw.mode); err != nil {
+			cleanupMount(p.DiskConfig)
+			return fmt.Errorf("failed to write %s: %w", fw.path, err)
 		}
 	}
 

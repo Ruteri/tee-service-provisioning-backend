@@ -125,3 +125,17 @@ func (p *LocalKMSRegistrationProvider) Register(app interfaces.ContractAddress, 
 		Config:     interfaces.InstanceConfig{},
 	}, nil
 }
+
+func (p *LocalKMSRegistrationProvider) GetAppMetadata(contractAddr interfaces.ContractAddress) (*api.MetadataResponse, error) {
+	pki, err := p.KMS.GetPKI(contractAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	return &api.MetadataResponse{
+		CACert:      pki.Ca,
+		AppPubkey:   pki.Pubkey,
+		DomainNames: nil,
+		Attestation: pki.Attestation,
+	}, nil
+}

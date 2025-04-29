@@ -21,21 +21,14 @@
 //
 // The tool follows a secure provisioning workflow:
 //
-// 1. Initial Provisioning:
-//   - Generate TLS key pair and Certificate Signing Request (CSR)
-//   - Optionally wait for operator signature over CSR
-//   - Register with provisioning server using TEE attestation
-//   - Derive disk encryption key from CSR and app private key
-//   - Set up encrypted disk and store metadata
-//   - Write certificates, keys, and configuration to protected storage
-//
-// 2. Re-provisioning (after restart):
-//   - Read CSR from LUKS metadata
-//   - Re-register with provisioning server
-//   - Derive same disk encryption key
-//   - Mount existing encrypted volume
-//   - Verify cryptographic materials match
-//   - Update configuration with latest from server
+//  1. Initial Provisioning:
+//  1. Generate TLS key pair and Certificate Signing Request (CSR)
+//  2. Optionally wait for operator signature over CSR
+//  3. Register with provisioning server using TEE attestation
+//  4. Derive disk encryption key from app privkey and disk label
+//     The disk label is generated randomly when attaching a new disk and written to LUKS header
+//     The disk label is read from LUKS header metadata if disk is already provisioned
+//  5. Write certificates, keys, and configuration to encrypted storage
 //
 // # Operator Signature Flow
 //

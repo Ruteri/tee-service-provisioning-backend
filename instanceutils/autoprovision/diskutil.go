@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-const LUKS_TOKEN_ID_CSR string = "1"
+const LUKS_TOKEN_ID_DISK_LABEL string = "1"
 
 type DiskConfig struct {
 	DevicePath   string
