@@ -1,7 +1,9 @@
 package kms
 
 import (
+	"bytes"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
@@ -32,9 +34,17 @@ type ShamirKMS struct {
 	receivedShares map[int][]byte // Temporary storage for shares during reconstruction
 
 	// For admin verification approach
-	adminPubKeys map[string]bool // Map of allowed admin public key fingerprints
+	adminPubKeys map[string][]byte // Map of allowed admin public key fingerprints
 
 	attestationProvider cryptoutils.AttestationProvider
+}
+
+// ShamirConfig contains configuration parameters for creating a ShamirKMS instance.
+type ShamirConfig struct {
+	// Threshold is the minimum number of shares required to reconstruct the master key
+	Threshold int
+	// AdminPubKeys is the list of authorized administrator public keys in PEM format
+	AdminPubKeys [][]byte
 }
 
 func (k *ShamirKMS) SimpleKMS() *SimpleKMS {
@@ -48,28 +58,27 @@ func (k *ShamirKMS) SimpleKMS() *SimpleKMS {
 //
 // Parameters:
 //   - masterKey: The sensitive seed material to protect (at least 32 bytes)
-//   - threshold: The minimum number of shares required to reconstruct the master key
-//   - totalShares: The total number of shares to generate
+//   - config: Configuration containing threshold and admin public keys
 //
 // Returns:
 //   - The ShamirKMS instance in locked state
 //   - The generated shares to distribute to administrators
 //   - Error if the operation fails
-func NewShamirKMS(masterKey []byte, threshold, totalShares int) (*ShamirKMS, [][]byte, error) {
+func NewShamirKMS(masterKey []byte, config ShamirConfig) (*ShamirKMS, [][]byte, error) {
 	if len(masterKey) < 32 {
 		return nil, nil, errors.New("master key must be at least 32 bytes")
 	}
 
-	if threshold < 2 {
+	if config.Threshold < 2 {
 		return nil, nil, errors.New("threshold must be at least 2")
 	}
 
-	if totalShares < threshold {
+	if len(config.AdminPubKeys) < config.Threshold {
 		return nil, nil, errors.New("total shares must be at least equal to threshold")
 	}
 
 	// Split master key into shares
-	shares, err := shamir.Split(masterKey, totalShares, threshold)
+	shares, err := shamir.Split(masterKey, len(config.AdminPubKeys), config.Threshold)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to split master key: %w", err)
 	}
@@ -77,9 +86,17 @@ func NewShamirKMS(masterKey []byte, threshold, totalShares int) (*ShamirKMS, [][
 	kms := &ShamirKMS{
 		masterKey:      masterKey,
 		isUnlocked:     true,
-		threshold:      threshold,
+		threshold:      config.Threshold,
 		receivedShares: make(map[int][]byte),
-		adminPubKeys:   make(map[string]bool),
+		adminPubKeys:   make(map[string][]byte),
+	}
+
+	for _, publicKeyPEM := range config.AdminPubKeys {
+		if err := cryptoutils.AppPubkey(publicKeyPEM).Validate(); err != nil {
+			return nil, nil, fmt.Errorf("invalid admin pubkey %s: %w", publicKeyPEM, err)
+		}
+		fingerprint := sha256.Sum256(publicKeyPEM)
+		kms.adminPubKeys[hex.EncodeToString(fingerprint[:])] = publicKeyPEM
 	}
 
 	return kms, shares, nil
@@ -91,61 +108,37 @@ func NewShamirKMS(masterKey []byte, threshold, totalShares int) (*ShamirKMS, [][
 // to reconstruct the master key.
 //
 // Parameter:
-//   - threshold: The minimum number of shares required to reconstruct the master key
+//   - config: Configuration containing threshold and admin public keys
 //
 // Returns:
 //   - The ShamirKMS instance in locked state, ready to accept shares
-func NewShamirKMSRecovery(threshold int) *ShamirKMS {
-	return &ShamirKMS{
+//   - Error if admin public key validation fails
+func NewShamirKMSRecovery(config ShamirConfig) (*ShamirKMS, error) {
+	kms := &ShamirKMS{
 		masterKey:           nil,
 		isUnlocked:          false,
-		threshold:           threshold,
+		threshold:           config.Threshold,
 		receivedShares:      make(map[int][]byte),
-		adminPubKeys:        make(map[string]bool),
+		adminPubKeys:        make(map[string][]byte),
 		attestationProvider: cryptoutils.DumyAttestationProvider{},
 	}
+
+	for _, publicKeyPEM := range config.AdminPubKeys {
+		if err := cryptoutils.AppPubkey(publicKeyPEM).Validate(); err != nil {
+			return nil, fmt.Errorf("invalid admin pubkey %s: %w", publicKeyPEM, err)
+		}
+		fingerprint := sha256.Sum256(publicKeyPEM)
+		kms.adminPubKeys[hex.EncodeToString(fingerprint[:])] = publicKeyPEM
+	}
+
+	return kms, nil
 }
 
+// SetAttestationProvider sets the attestation provider for this ShamirKMS.
+// This allows customizing how attestations are generated when providing PKI materials.
 func (k *ShamirKMS) SetAttestationProvider(provider cryptoutils.AttestationProvider) *ShamirKMS {
 	k.attestationProvider = provider
 	return k
-}
-
-// RegisterAdmin registers an administrator's public key with the KMS.
-// Only administrators with registered keys are authorized to submit shares.
-// The public key is stored as a fingerprint to verify share submissions.
-//
-// Parameter:
-//   - publicKeyPEM: The administrator's ECDSA public key in PEM format
-//
-// Returns:
-//   - Error if the public key is invalid or cannot be registered
-func (k *ShamirKMS) RegisterAdmin(publicKeyPEM []byte) error {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-
-	// Parse public key from PEM
-	block, _ := pem.Decode(publicKeyPEM)
-	if block == nil {
-		return errors.New("failed to decode PEM block")
-	}
-
-	pubKey, err := x509.ParsePKIXPublicKey(block.Bytes)
-	if err != nil {
-		return fmt.Errorf("failed to parse public key: %w", err)
-	}
-
-	// Ensure it's an ECDSA key
-	_, ok := pubKey.(*ecdsa.PublicKey)
-	if !ok {
-		return errors.New("public key is not an ECDSA key")
-	}
-
-	// Calculate a fingerprint of the public key
-	fingerprint := sha256.Sum256(publicKeyPEM)
-	k.adminPubKeys[hex.EncodeToString(fingerprint[:])] = true
-
-	return nil
 }
 
 // SubmitShare submits a key share with cryptographic verification.
@@ -173,8 +166,13 @@ func (k *ShamirKMS) SubmitShare(shareIndex int, share, signature, adminPubKeyPEM
 	// Verify the admin's public key is registered
 	fingerprint := sha256.Sum256(adminPubKeyPEM)
 	fingerprintHex := hex.EncodeToString(fingerprint[:])
-	if !k.adminPubKeys[fingerprintHex] {
+	pubkeyForFingerprint, found := k.adminPubKeys[fingerprintHex]
+	if !found {
 		return errors.New("unregistered admin public key")
+	}
+
+	if !bytes.Equal(pubkeyForFingerprint, adminPubKeyPEM) {
+		return errors.New("invalid pubkey passed for a matching fingerprint")
 	}
 
 	// Parse the admin's public key
@@ -188,20 +186,23 @@ func (k *ShamirKMS) SubmitShare(shareIndex int, share, signature, adminPubKeyPEM
 		return fmt.Errorf("failed to parse admin public key: %w", err)
 	}
 
-	ecdsaPubKey, ok := pubKey.(*ecdsa.PublicKey)
-	if !ok {
-		return errors.New("admin public key is not an ECDSA key")
+	if ecdsaPubKey, ok := pubKey.(*ecdsa.PublicKey); ok {
+		// TODO: should verify and sign the message rather than hash!
+		if !ecdsa.VerifyASN1(ecdsaPubKey, share, signature) {
+			return errors.New("invalid signature")
+		}
+		// Store the share
+		k.receivedShares[shareIndex] = share
+	} else if edPubKey, ok := pubKey.(ed25519.PublicKey); ok {
+		// TODO: should verify and sign the message rather than hash!
+		if !ed25519.Verify(edPubKey, share, signature) {
+			return errors.New("invalid signature")
+		}
+		// Store the share
+		k.receivedShares[shareIndex] = share
+	} else {
+		return errors.New("admin public key is neither ECDSA nor ED25519 key")
 	}
-
-	// Verify signature
-	hash := sha256.Sum256(share)
-	valid := ecdsa.VerifyASN1(ecdsaPubKey, hash[:], signature)
-	if !valid {
-		return errors.New("invalid signature")
-	}
-
-	// Store the share
-	k.receivedShares[shareIndex] = share
 
 	// Try to reconstruct the master key if we have enough shares
 	return k.tryReconstruct()
@@ -258,7 +259,9 @@ func (k *ShamirKMS) IsUnlocked() bool {
 	return k.isUnlocked
 }
 
-// Get the PKI information for a contract.
+// GetPKI retrieves the PKI information for a contract.
+// This method delegates to SimpleKMS once the ShamirKMS is unlocked.
+// Returns an error if the KMS is locked.
 func (k *ShamirKMS) GetPKI(contractAddr interfaces.ContractAddress) (interfaces.AppPKI, error) {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
@@ -270,7 +273,9 @@ func (k *ShamirKMS) GetPKI(contractAddr interfaces.ContractAddress) (interfaces.
 	return k.SimpleKMS().GetPKI(contractAddr)
 }
 
-// Get the application private key for a contract.
+// GetAppPrivkey retrieves the application private key for a contract.
+// This method delegates to SimpleKMS once the ShamirKMS is unlocked.
+// Returns an error if the KMS is locked.
 func (k *ShamirKMS) GetAppPrivkey(contractAddr interfaces.ContractAddress) (interfaces.AppPrivkey, error) {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
@@ -282,7 +287,9 @@ func (k *ShamirKMS) GetAppPrivkey(contractAddr interfaces.ContractAddress) (inte
 	return k.SimpleKMS().GetAppPrivkey(contractAddr)
 }
 
-// Sign a CSR for a verified TEE instance.
+// SignCSR signs a certificate signing request for a verified TEE instance.
+// This method delegates to SimpleKMS once the ShamirKMS is unlocked.
+// Returns an error if the KMS is locked.
 func (k *ShamirKMS) SignCSR(contractAddr interfaces.ContractAddress, csr interfaces.TLSCSR) (interfaces.TLSCert, error) {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
@@ -313,26 +320,5 @@ func wipeBytes(data []byte) {
 //   - The ASN.1 encoded signature
 //   - Error if the signing operation fails
 func SignShare(share []byte, privateKey *ecdsa.PrivateKey) ([]byte, error) {
-	hash := sha256.Sum256(share)
-	return ecdsa.SignASN1(rand.Reader, privateKey, hash[:])
-}
-
-// SplitMasterKey splits a master key into shares using Shamir's Secret Sharing algorithm.
-// This is a helper function that can be used separately from the ShamirKMS when
-// custom share generation is needed.
-//
-// Parameters:
-//   - masterKey: The master key to split (should be at least 32 bytes)
-//   - totalShares: The total number of shares to generate
-//   - threshold: The minimum number of shares needed to reconstruct the key
-//
-// Returns:
-//   - The generated shares
-//   - Error if the splitting operation fails
-func SplitMasterKey(masterKey []byte, totalShares, threshold int) ([][]byte, error) {
-	if len(masterKey) < 32 {
-		return nil, errors.New("master key must be at least 32 bytes")
-	}
-
-	return shamir.Split(masterKey, totalShares, threshold)
+	return ecdsa.SignASN1(rand.Reader, privateKey, share)
 }

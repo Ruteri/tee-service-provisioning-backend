@@ -78,7 +78,8 @@ func TestNewAdminHandler(t *testing.T) {
 	_, adminPubKeys := generateAdminKeyPairs(t, 3)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	handler := NewAdminHandler(logger, adminPubKeys)
+	handler, err := NewAdminHandler(logger, 2, adminPubKeys)
+	require.NoError(t, err)
 	assert.NotNil(t, handler, "Handler should not be nil")
 	assert.Equal(t, StateInitial, handler.state, "Initial state should be StateInitial")
 	assert.Len(t, handler.adminPubKeys, 3, "Should have 3 admin keys")
@@ -89,7 +90,8 @@ func TestAdminHandler_GetKMS_WhenNotComplete(t *testing.T) {
 	_, adminPubKeys := generateAdminKeyPairs(t, 3)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	handler := NewAdminHandler(logger, adminPubKeys)
+	handler, err := NewAdminHandler(logger, 2, adminPubKeys)
+	require.NoError(t, err)
 	kmsImpl := handler.GetKMS()
 	assert.Nil(t, kmsImpl, "KMS should be nil when not complete")
 }
@@ -98,7 +100,8 @@ func TestAdminHandler_WaitForBootstrap_WithTimeout(t *testing.T) {
 	_, adminPubKeys := generateAdminKeyPairs(t, 3)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	handler := NewAdminHandler(logger, adminPubKeys)
+	handler, err := NewAdminHandler(logger, 2, adminPubKeys)
+	require.NoError(t, err)
 
 	// Create a context with short timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
@@ -115,7 +118,8 @@ func TestAdminHandler_WaitForBootstrap_Completion(t *testing.T) {
 	_, adminPubKeys := generateAdminKeyPairs(t, 3)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	handler := NewAdminHandler(logger, adminPubKeys)
+	handler, err := NewAdminHandler(logger, 2, adminPubKeys)
+	require.NoError(t, err)
 
 	// Simulate completion in a separate goroutine
 	go func() {
@@ -138,10 +142,11 @@ func TestAdminHandler_WaitForBootstrap_Completion(t *testing.T) {
 // Authentication tests
 
 func TestAdminHandler_verifyAdmin_Success(t *testing.T) {
-	adminPrivKeys, adminPubKeys := generateAdminKeyPairs(t, 1)
+	adminPrivKeys, adminPubKeys := generateAdminKeyPairs(t, 2)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	handler := NewAdminHandler(logger, adminPubKeys)
+	handler, err := NewAdminHandler(logger, 2, adminPubKeys)
+	require.NoError(t, err)
 
 	// Create a test request with a path and body
 	body := []byte(`{"test":"value"}`)
@@ -171,10 +176,11 @@ func TestAdminHandler_verifyAdmin_Success(t *testing.T) {
 }
 
 func TestAdminHandler_verifyAdmin_MissingHeaders(t *testing.T) {
-	_, adminPubKeys := generateAdminKeyPairs(t, 1)
+	_, adminPubKeys := generateAdminKeyPairs(t, 2)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	handler := NewAdminHandler(logger, adminPubKeys)
+	handler, err := NewAdminHandler(logger, 2, adminPubKeys)
+	require.NoError(t, err)
 
 	// Create a test request without headers
 	req, err := http.NewRequest("GET", "/admin/test", nil)
@@ -186,10 +192,11 @@ func TestAdminHandler_verifyAdmin_MissingHeaders(t *testing.T) {
 }
 
 func TestAdminHandler_verifyAdmin_UnknownAdmin(t *testing.T) {
-	adminPrivKeys, adminPubKeys := generateAdminKeyPairs(t, 1)
+	adminPrivKeys, adminPubKeys := generateAdminKeyPairs(t, 2)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	handler := NewAdminHandler(logger, adminPubKeys)
+	handler, err := NewAdminHandler(logger, 2, adminPubKeys)
+	require.NoError(t, err)
 
 	// Create a test request
 	req, err := http.NewRequest("GET", "/admin/test", nil)
@@ -212,10 +219,11 @@ func TestAdminHandler_verifyAdmin_UnknownAdmin(t *testing.T) {
 }
 
 func TestAdminHandler_verifyAdmin_InvalidSignature(t *testing.T) {
-	adminPrivKeys, adminPubKeys := generateAdminKeyPairs(t, 1)
+	adminPrivKeys, adminPubKeys := generateAdminKeyPairs(t, 2)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	handler := NewAdminHandler(logger, adminPubKeys)
+	handler, err := NewAdminHandler(logger, 2, adminPubKeys)
+	require.NoError(t, err)
 
 	// Create a test request
 	req, err := http.NewRequest("GET", "/admin/test", nil)
@@ -241,10 +249,11 @@ func TestAdminHandler_verifyAdmin_InvalidSignature(t *testing.T) {
 // Status endpoint test
 
 func TestAdminHandler_handleStatus(t *testing.T) {
-	_, adminPubKeys := generateAdminKeyPairs(t, 1)
+	_, adminPubKeys := generateAdminKeyPairs(t, 2)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	handler := NewAdminHandler(logger, adminPubKeys)
+	handler, err := NewAdminHandler(logger, 2, adminPubKeys)
+	require.NoError(t, err)
 
 	// Create a request to the status endpoint
 	req := httptest.NewRequest("GET", "/admin/status", nil)
@@ -260,7 +269,7 @@ func TestAdminHandler_handleStatus(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var result map[string]interface{}
-	err := json.NewDecoder(resp.Body).Decode(&result)
+	err = json.NewDecoder(resp.Body).Decode(&result)
 	require.NoError(t, err)
 
 	assert.Equal(t, "initial", result["state"])
@@ -268,8 +277,6 @@ func TestAdminHandler_handleStatus(t *testing.T) {
 	// Change the state and test again
 	handler.mu.Lock()
 	handler.state = StateGeneratingShares
-	handler.threshold = 3
-	handler.totalShares = 5
 	handler.mu.Unlock()
 
 	w = httptest.NewRecorder()
@@ -282,8 +289,6 @@ func TestAdminHandler_handleStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "generating_shares", result["state"])
-	assert.Equal(t, float64(3), result["threshold"])
-	assert.Equal(t, float64(5), result["total_shares"])
 }
 
 // Init generate tests
@@ -292,19 +297,12 @@ func TestAdminHandler_handleInitGenerate(t *testing.T) {
 	adminPrivKeys, adminPubKeys := generateAdminKeyPairs(t, 5)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	handler := NewAdminHandler(logger, adminPubKeys)
+	handler, err := NewAdminHandler(logger, 3, adminPubKeys)
+	require.NoError(t, err)
 
 	// Set up test server
 	server := createTestServer(t, handler)
 	defer server.Close()
-
-	// Create request body
-	reqBody := map[string]interface{}{
-		"threshold":    3,
-		"total_shares": 5,
-	}
-	reqJSON, err := json.Marshal(reqBody)
-	require.NoError(t, err)
 
 	// Create signed request
 	adminID := "admin1"
@@ -312,7 +310,7 @@ func TestAdminHandler_handleInitGenerate(t *testing.T) {
 		t,
 		"POST",
 		server.URL+"/admin/init/generate",
-		reqJSON,
+		nil,
 		adminID,
 		adminPrivKeys[adminID],
 	)
@@ -339,83 +337,26 @@ func TestAdminHandler_handleInitGenerate(t *testing.T) {
 	// Verify handler state
 	assert.Equal(t, StateGeneratingShares, handler.state)
 	assert.NotNil(t, handler.shamirKMS)
-	assert.Equal(t, 3, handler.threshold)
-	assert.Equal(t, 5, handler.totalShares)
 	assert.Len(t, handler.adminShares, 5)
 }
 
 func TestAdminHandler_handleInitGenerate_InvalidParameters(t *testing.T) {
-	adminPrivKeys, adminPubKeys := generateAdminKeyPairs(t, 5)
+	_, adminPubKeys := generateAdminKeyPairs(t, 5)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	handler := NewAdminHandler(logger, adminPubKeys)
+	_, err := NewAdminHandler(logger, 1, adminPubKeys)
+	assert.Error(t, err, "threshold")
 
-	// Set up test server
-	server := createTestServer(t, handler)
-	defer server.Close()
-
-	// Test cases
-	testCases := []struct {
-		name     string
-		reqBody  map[string]interface{}
-		expected int
-	}{
-		{
-			name: "threshold < 2",
-			reqBody: map[string]interface{}{
-				"threshold":    1,
-				"total_shares": 5,
-			},
-			expected: http.StatusBadRequest,
-		},
-		{
-			name: "total_shares < threshold",
-			reqBody: map[string]interface{}{
-				"threshold":    3,
-				"total_shares": 2,
-			},
-			expected: http.StatusBadRequest,
-		},
-		{
-			name: "too many shares",
-			reqBody: map[string]interface{}{
-				"threshold":    3,
-				"total_shares": 10, // More than available admins
-			},
-			expected: http.StatusBadRequest,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			reqJSON, err := json.Marshal(tc.reqBody)
-			require.NoError(t, err)
-
-			adminID := "admin1"
-			req := createSignedRequest(
-				t,
-				"POST",
-				server.URL+"/admin/init/generate",
-				reqJSON,
-				adminID,
-				adminPrivKeys[adminID],
-			)
-
-			client := &http.Client{}
-			resp, err := client.Do(req)
-			require.NoError(t, err)
-			defer resp.Body.Close()
-
-			assert.Equal(t, tc.expected, resp.StatusCode)
-		})
-	}
+	_, err = NewAdminHandler(logger, 10, adminPubKeys)
+	assert.Error(t, err, "threshold")
 }
 
 func TestAdminHandler_handleInitGenerate_AlreadyInProgress(t *testing.T) {
 	adminPrivKeys, adminPubKeys := generateAdminKeyPairs(t, 5)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	handler := NewAdminHandler(logger, adminPubKeys)
+	handler, err := NewAdminHandler(logger, 3, adminPubKeys)
+	require.NoError(t, err)
 
 	// Set state to not initial
 	handler.mu.Lock()
@@ -426,21 +367,13 @@ func TestAdminHandler_handleInitGenerate_AlreadyInProgress(t *testing.T) {
 	server := createTestServer(t, handler)
 	defer server.Close()
 
-	// Create request body
-	reqBody := map[string]interface{}{
-		"threshold":    3,
-		"total_shares": 5,
-	}
-	reqJSON, err := json.Marshal(reqBody)
-	require.NoError(t, err)
-
 	// Create signed request
 	adminID := "admin1"
 	req := createSignedRequest(
 		t,
 		"POST",
 		server.URL+"/admin/init/generate",
-		reqJSON,
+		nil,
 		adminID,
 		adminPrivKeys[adminID],
 	)
@@ -461,21 +394,21 @@ func TestAdminHandler_handleGetShare(t *testing.T) {
 	adminPrivKeys, adminPubKeys := generateAdminKeyPairs(t, 5)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	handler := NewAdminHandler(logger, adminPubKeys)
+	handler, err := NewAdminHandler(logger, 3, adminPubKeys)
+	require.NoError(t, err)
 
 	// Generate shares first
 	masterKey := make([]byte, 32)
-	_, err := rand.Read(masterKey)
+	_, err = rand.Read(masterKey)
 	require.NoError(t, err)
 
-	shamirKMS, shares, err := kms.NewShamirKMS(masterKey, 3, 5)
-	require.NoError(t, err)
-
-	// Register admins with KMS
-	for _, pubKey := range adminPubKeys {
-		err = shamirKMS.RegisterAdmin(pubKey)
-		require.NoError(t, err, "Failed to register admin with KMS")
+	rawPubkeys := [][]byte{}
+	for _, pk := range adminPubKeys {
+		rawPubkeys = append(rawPubkeys, pk)
 	}
+
+	shamirKMS, shares, err := kms.NewShamirKMS(masterKey, kms.ShamirConfig{3, rawPubkeys})
+	require.NoError(t, err)
 
 	// Prepare for share distribution
 	adminIDs := []string{"admin1", "admin2", "admin3", "admin4", "admin5"}
@@ -501,8 +434,6 @@ func TestAdminHandler_handleGetShare(t *testing.T) {
 	// Setup handler state
 	handler.mu.Lock()
 	handler.shamirKMS = shamirKMS
-	handler.threshold = 3
-	handler.totalShares = 5
 	handler.state = StateGeneratingShares
 	handler.mu.Unlock()
 
@@ -575,10 +506,11 @@ func TestAdminHandler_handleGetShare(t *testing.T) {
 }
 
 func TestAdminHandler_handleGetShare_NotGeneratingState(t *testing.T) {
-	adminPrivKeys, adminPubKeys := generateAdminKeyPairs(t, 1)
+	adminPrivKeys, adminPubKeys := generateAdminKeyPairs(t, 2)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	handler := NewAdminHandler(logger, adminPubKeys)
+	handler, err := NewAdminHandler(logger, 2, adminPubKeys)
+	require.NoError(t, err)
 
 	// Set up test server
 	server := createTestServer(t, handler)
@@ -609,7 +541,8 @@ func TestAdminHandler_handleGetShare_NoAssignedShare(t *testing.T) {
 	adminPrivKeys, adminPubKeys := generateAdminKeyPairs(t, 2)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	handler := NewAdminHandler(logger, adminPubKeys)
+	handler, err := NewAdminHandler(logger, 2, adminPubKeys)
+	require.NoError(t, err)
 
 	// Set state but don't assign shares
 	handler.mu.Lock()
@@ -647,18 +580,12 @@ func TestAdminHandler_handleInitRecover(t *testing.T) {
 	adminPrivKeys, adminPubKeys := generateAdminKeyPairs(t, 5)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	handler := NewAdminHandler(logger, adminPubKeys)
+	handler, err := NewAdminHandler(logger, 3, adminPubKeys)
+	require.NoError(t, err)
 
 	// Set up test server
 	server := createTestServer(t, handler)
 	defer server.Close()
-
-	// Create request body
-	reqBody := map[string]interface{}{
-		"threshold": 3,
-	}
-	reqJSON, err := json.Marshal(reqBody)
-	require.NoError(t, err)
 
 	// Create signed request
 	adminID := "admin1"
@@ -666,7 +593,7 @@ func TestAdminHandler_handleInitRecover(t *testing.T) {
 		t,
 		"POST",
 		server.URL+"/admin/init/recover",
-		reqJSON,
+		nil,
 		adminID,
 		adminPrivKeys[adminID],
 	)
@@ -692,76 +619,35 @@ func TestAdminHandler_handleInitRecover(t *testing.T) {
 	// Verify handler state
 	assert.Equal(t, StateRecovering, handler.state)
 	assert.NotNil(t, handler.shamirKMS)
-	assert.Equal(t, 3, handler.threshold)
-	assert.Equal(t, 5, handler.totalShares) // Should be number of admins
-}
-
-func TestAdminHandler_handleInitRecover_InvalidParameters(t *testing.T) {
-	adminPrivKeys, adminPubKeys := generateAdminKeyPairs(t, 5)
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
-	handler := NewAdminHandler(logger, adminPubKeys)
-
-	// Set up test server
-	server := createTestServer(t, handler)
-	defer server.Close()
-
-	// Create request body with invalid threshold
-	reqBody := map[string]interface{}{
-		"threshold": 1, // Less than 2 is invalid
-	}
-	reqJSON, err := json.Marshal(reqBody)
-	require.NoError(t, err)
-
-	// Create signed request
-	adminID := "admin1"
-	req := createSignedRequest(
-		t,
-		"POST",
-		server.URL+"/admin/init/recover",
-		reqJSON,
-		adminID,
-		adminPrivKeys[adminID],
-	)
-
-	// Send the request
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-
-	// Should return error
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 func TestAdminHandler_handleSubmitShare(t *testing.T) {
 	adminPrivKeys, adminPubKeys := generateAdminKeyPairs(t, 5)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	handler := NewAdminHandler(logger, adminPubKeys)
+	handler, err := NewAdminHandler(logger, 3, adminPubKeys)
+	require.NoError(t, err)
 
 	// Generate master key and shares for testing
 	masterKey := make([]byte, 32)
-	_, err := rand.Read(masterKey)
+	_, err = rand.Read(masterKey)
 	require.NoError(t, err)
 
-	_, shares, err := kms.NewShamirKMS(masterKey, 3, 5)
+	rawPubkeys := [][]byte{}
+	for _, pk := range adminPubKeys {
+		rawPubkeys = append(rawPubkeys, pk)
+	}
+
+	_, shares, err := kms.NewShamirKMS(masterKey, kms.ShamirConfig{3, rawPubkeys})
 	require.NoError(t, err)
 
 	// Create recovery KMS
-	shamirKMS := kms.NewShamirKMSRecovery(3)
-
-	// Register admins with KMS
-	for _, pubKey := range adminPubKeys {
-		err = shamirKMS.RegisterAdmin(pubKey)
-		require.NoError(t, err, "Failed to register admin with KMS")
-	}
+	shamirKMS, err := kms.NewShamirKMSRecovery(kms.ShamirConfig{3, rawPubkeys})
+	require.NoError(t, err)
 
 	// Set up handler for recovery
 	handler.mu.Lock()
 	handler.shamirKMS = shamirKMS
-	handler.threshold = 3
-	handler.totalShares = 5
 	handler.state = StateRecovering
 	handler.mu.Unlock()
 
@@ -775,8 +661,7 @@ func TestAdminHandler_handleSubmitShare(t *testing.T) {
 	for i, adminID := range adminIDs {
 		t.Run("Submit_"+adminID, func(t *testing.T) {
 			// Sign the share
-			hash := sha256.Sum256(shares[i])
-			signature, err := ecdsa.SignASN1(rand.Reader, adminPrivKeys[adminID], hash[:])
+			signature, err := kms.SignShare(shares[i], adminPrivKeys[adminID])
 			require.NoError(t, err)
 
 			// Create request body
@@ -825,14 +710,20 @@ func TestAdminHandler_handleSubmitShare(t *testing.T) {
 	// Verify final state
 	assert.Equal(t, StateComplete, handler.state)
 	assert.True(t, handler.shamirKMS.IsUnlocked(), "KMS should be unlocked")
-	assert.NotNil(t, <-handler.completeChan, "Complete channel should be closed")
+	select {
+	case cc := <-handler.completeChan:
+		assert.NotNil(t, cc, "Complete channel should be closed")
+	case <-time.After(100 * time.Millisecond):
+		assert.Fail(t, "timeout waiting for complete channel")
+	}
 }
 
 func TestAdminHandler_handleSubmitShare_NotRecovering(t *testing.T) {
-	adminPrivKeys, adminPubKeys := generateAdminKeyPairs(t, 1)
+	adminPrivKeys, adminPubKeys := generateAdminKeyPairs(t, 2)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	handler := NewAdminHandler(logger, adminPubKeys)
+	handler, err := NewAdminHandler(logger, 2, adminPubKeys)
+	require.NoError(t, err)
 
 	// Set up test server
 	server := createTestServer(t, handler)
@@ -1000,26 +891,19 @@ func TestAdminHandler_EndToEnd_GenerateAndRetrieve(t *testing.T) {
 	adminPrivKeys, adminPubKeys := generateAdminKeyPairs(t, 3)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	handler := NewAdminHandler(logger, adminPubKeys)
+	handler, err := NewAdminHandler(logger, 2, adminPubKeys)
+	require.NoError(t, err)
 
 	// Set up test server
 	server := createTestServer(t, handler)
 	defer server.Close()
-
-	// Step 1: Initialize generation
-	reqBody := map[string]interface{}{
-		"threshold":    2,
-		"total_shares": 3,
-	}
-	reqJSON, err := json.Marshal(reqBody)
-	require.NoError(t, err)
 
 	adminID := "admin1"
 	req := createSignedRequest(
 		t,
 		"POST",
 		server.URL+"/admin/init/generate",
-		reqJSON,
+		nil,
 		adminID,
 		adminPrivKeys[adminID],
 	)
@@ -1087,7 +971,8 @@ func TestAdminHandler_EndToEnd_RecoveryFlow(t *testing.T) {
 	adminPrivKeys, adminPubKeys := generateAdminKeyPairs(t, 3)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	handler := NewAdminHandler(logger, adminPubKeys)
+	handler, err := NewAdminHandler(logger, 2, adminPubKeys)
+	require.NoError(t, err)
 
 	// Set up test server
 	server := createTestServer(t, handler)
@@ -1095,17 +980,14 @@ func TestAdminHandler_EndToEnd_RecoveryFlow(t *testing.T) {
 
 	// Step 1: Generate a master key and shares outside the handler
 	masterKey := make([]byte, 32)
-	_, err := rand.Read(masterKey)
+	_, err = rand.Read(masterKey)
 	require.NoError(t, err)
 
-	_, shares, err := kms.NewShamirKMS(masterKey, 2, 3)
-	require.NoError(t, err)
-
-	// Step 2: Initialize recovery
-	reqBody := map[string]interface{}{
-		"threshold": 2,
+	rawPubkeys := [][]byte{}
+	for _, pk := range adminPubKeys {
+		rawPubkeys = append(rawPubkeys, pk)
 	}
-	reqJSON, err := json.Marshal(reqBody)
+	_, shares, err := kms.NewShamirKMS(masterKey, kms.ShamirConfig{2, rawPubkeys})
 	require.NoError(t, err)
 
 	adminID := "admin1"
@@ -1113,7 +995,7 @@ func TestAdminHandler_EndToEnd_RecoveryFlow(t *testing.T) {
 		t,
 		"POST",
 		server.URL+"/admin/init/recover",
-		reqJSON,
+		nil,
 		adminID,
 		adminPrivKeys[adminID],
 	)
@@ -1129,8 +1011,7 @@ func TestAdminHandler_EndToEnd_RecoveryFlow(t *testing.T) {
 
 	for i, adminID := range adminIDs {
 		// Sign the share
-		hash := sha256.Sum256(shares[i])
-		signature, err := ecdsa.SignASN1(rand.Reader, adminPrivKeys[adminID], hash[:])
+		signature, err := kms.SignShare(shares[i], adminPrivKeys[adminID])
 		require.NoError(t, err)
 
 		reqBody := map[string]interface{}{

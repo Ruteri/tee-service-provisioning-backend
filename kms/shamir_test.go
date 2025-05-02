@@ -4,12 +4,13 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"testing"
 
+	"github.com/hashicorp/vault/shamir"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,62 +22,47 @@ func TestShamirKMS_NewShamirKMS(t *testing.T) {
 	_, err := rand.Read(masterKey)
 	require.NoError(t, err, "Failed to generate test master key")
 
-	kms, shares, err := NewShamirKMS(masterKey, 3, 5)
+	_, adminCerts := randomAdmins(t, 5)
+	kms, shares, err := NewShamirKMS(masterKey, ShamirConfig{3, adminCerts})
 	require.NoError(t, err, "NewShamirKMS should succeed with valid parameters")
 	assert.NotNil(t, kms, "KMS should not be nil")
 	assert.Equal(t, 5, len(shares), "Should generate 5 shares")
 	assert.True(t, kms.IsUnlocked(), "KMS should start in unlocked state when initiated with master key")
 
 	// Test with invalid parameters
-	_, _, err = NewShamirKMS(masterKey, 6, 5)
+	_, _, err = NewShamirKMS(masterKey, ShamirConfig{6, adminCerts})
 	assert.Error(t, err, "Should fail when threshold > total shares")
 
-	_, _, err = NewShamirKMS(masterKey, 1, 5)
+	_, _, err = NewShamirKMS(masterKey, ShamirConfig{1, adminCerts})
 	assert.Error(t, err, "Should fail when threshold < 2")
 
 	// Test with too short master key
 	shortKey := make([]byte, 16)
-	_, _, err = NewShamirKMS(shortKey, 3, 5)
+	_, _, err = NewShamirKMS(shortKey, ShamirConfig{2, adminCerts})
 	assert.Error(t, err, "Should fail with master key < 32 bytes")
 }
 
 func TestShamirKMS_NewShamirKMSRecovery(t *testing.T) {
-	kms := NewShamirKMSRecovery(3)
+	_, adminCerts := randomAdmins(t, 3)
+	kms, err := NewShamirKMSRecovery(ShamirConfig{3, adminCerts})
+	assert.NoError(t, err)
 	assert.NotNil(t, kms, "KMS should not be nil")
 	assert.Equal(t, 3, kms.threshold, "Threshold should be set correctly")
 	assert.False(t, kms.IsUnlocked(), "KMS should start in locked state")
 }
 
-func TestShamirKMS_RegisterAdmin(t *testing.T) {
-	kms := NewShamirKMSRecovery(3)
-	require.NotNil(t, kms, "KMS should not be nil")
-
-	// Generate valid ECDSA key
-	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err, "Failed to generate test key")
-
-	pubKeyBytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
-	require.NoError(t, err, "Failed to marshal public key")
-
-	pubKeyPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "PUBLIC KEY",
-		Bytes: pubKeyBytes,
-	})
-
-	// Test valid registration
-	err = kms.RegisterAdmin(pubKeyPEM)
-	assert.NoError(t, err, "Should successfully register valid admin key")
-
-	// Test invalid PEM
-	err = kms.RegisterAdmin([]byte("not-a-valid-pem"))
-	assert.Error(t, err, "Should fail with invalid PEM")
-
-	// Test unsupported key type
-	wrongKeyPEM := pem.EncodeToMemory(&pem.Block{
+func TestShamirKMS_InvalidAdmin(t *testing.T) {
+	_, adminCerts := randomAdmins(t, 3)
+	adminCerts[2] = pem.EncodeToMemory(&pem.Block{
 		Type:  "PUBLIC KEY",
 		Bytes: []byte("not-a-valid-key"),
 	})
-	err = kms.RegisterAdmin(wrongKeyPEM)
+	masterKey := make([]byte, 32)
+	_, err := rand.Read(masterKey)
+	_, _, err = NewShamirKMS(masterKey, ShamirConfig{2, adminCerts})
+	assert.Error(t, err, "Should fail with invalid key")
+
+	_, err = NewShamirKMSRecovery(ShamirConfig{2, adminCerts})
 	assert.Error(t, err, "Should fail with invalid key")
 }
 
@@ -86,50 +72,23 @@ func TestShamirKMS_ShareSubmission(t *testing.T) {
 	_, err := rand.Read(masterKey)
 	require.NoError(t, err, "Failed to generate test master key")
 
+	adminKeys, adminCerts := randomAdmins(t, 5)
+
 	// Create ShamirKMS in generation mode
-	genKms, shares, err := NewShamirKMS(masterKey, 3, 5)
+	_, shares, err := NewShamirKMS(masterKey, ShamirConfig{3, adminCerts})
 	require.NoError(t, err, "Failed to create KMS")
 	require.Equal(t, 5, len(shares), "Should generate 5 shares")
 
-	// Create admin keys
-	adminKeys := make([]*ecdsa.PrivateKey, 5)
-	adminPubKeyPEMs := make([][]byte, 5)
-
-	for i := 0; i < 5; i++ {
-		// Generate key pair
-		adminKeys[i], err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-		require.NoError(t, err, "Failed to generate admin key")
-
-		// Export public key
-		pubKeyBytes, err := x509.MarshalPKIXPublicKey(&adminKeys[i].PublicKey)
-		require.NoError(t, err, "Failed to marshal public key")
-
-		adminPubKeyPEMs[i] = pem.EncodeToMemory(&pem.Block{
-			Type:  "PUBLIC KEY",
-			Bytes: pubKeyBytes,
-		})
-
-		// Register with generator KMS (just for completeness)
-		err = genKms.RegisterAdmin(adminPubKeyPEMs[i])
-		require.NoError(t, err, "Failed to register admin")
-	}
-
 	// Create a recovery KMS
-	recoveryKms := NewShamirKMSRecovery(3)
-
-	// Register the same admins
-	for i := 0; i < 5; i++ {
-		err = recoveryKms.RegisterAdmin(adminPubKeyPEMs[i])
-		require.NoError(t, err, "Failed to register admin with recovery KMS")
-	}
+	recoveryKms, err := NewShamirKMSRecovery(ShamirConfig{3, adminCerts})
+	require.NoError(t, err)
 
 	// Sign and submit shares
 	for i := 0; i < 3; i++ {
-		hash := sha256.Sum256(shares[i])
-		signature, err := ecdsa.SignASN1(rand.Reader, adminKeys[i], hash[:])
+		signature, err := SignShare(shares[i], adminKeys[i])
 		require.NoError(t, err, "Failed to sign share")
 
-		err = recoveryKms.SubmitShare(i, shares[i], signature, adminPubKeyPEMs[i])
+		err = recoveryKms.SubmitShare(i, shares[i], signature, adminCerts[i])
 		require.NoError(t, err, "Share submission should succeed")
 	}
 
@@ -139,15 +98,12 @@ func TestShamirKMS_ShareSubmission(t *testing.T) {
 	// Test invalid cases
 
 	// Create a new recovery KMS
-	recoveryKms2 := NewShamirKMSRecovery(3)
-	for i := 0; i < 5; i++ {
-		err = recoveryKms2.RegisterAdmin(adminPubKeyPEMs[i])
-		require.NoError(t, err)
-	}
+	recoveryKms2, err := NewShamirKMSRecovery(ShamirConfig{3, adminCerts})
+	require.NoError(t, err)
 
 	// Test with invalid signature
 	invalidSig := []byte("invalid-signature")
-	err = recoveryKms2.SubmitShare(0, shares[0], invalidSig, adminPubKeyPEMs[0])
+	err = recoveryKms2.SubmitShare(0, shares[0], invalidSig, adminCerts[0])
 	assert.Error(t, err, "Should fail with invalid signature")
 
 	// Test with unregistered admin
@@ -162,8 +118,7 @@ func TestShamirKMS_ShareSubmission(t *testing.T) {
 		Bytes: unregPubKeyBytes,
 	})
 
-	hash := sha256.Sum256(shares[0])
-	signature, err := ecdsa.SignASN1(rand.Reader, unregisteredKey, hash[:])
+	signature, err := SignShare(shares[0], unregisteredKey)
 	require.NoError(t, err)
 
 	err = recoveryKms2.SubmitShare(0, shares[0], signature, unregPubKeyPEM)
@@ -176,47 +131,22 @@ func TestShamirKMS_UnlockedOperations(t *testing.T) {
 	_, err := rand.Read(masterKey)
 	require.NoError(t, err, "Failed to generate test master key")
 
+	adminKeys, adminCerts := randomAdmins(t, 5)
+
 	// Create ShamirKMS in generation mode
-	kms, shares, err := NewShamirKMS(masterKey, 3, 5)
+	_, shares, err := NewShamirKMS(masterKey, ShamirConfig{3, adminCerts})
 	require.NoError(t, err, "Failed to create KMS")
 
-	// Create admin keys
-	adminKeys := make([]*ecdsa.PrivateKey, 5)
-	adminPubKeyPEMs := make([][]byte, 5)
-
-	for i := 0; i < 5; i++ {
-		// Generate key pair
-		adminKeys[i], err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-		require.NoError(t, err, "Failed to generate admin key")
-
-		// Export public key
-		pubKeyBytes, err := x509.MarshalPKIXPublicKey(&adminKeys[i].PublicKey)
-		require.NoError(t, err, "Failed to marshal public key")
-
-		adminPubKeyPEMs[i] = pem.EncodeToMemory(&pem.Block{
-			Type:  "PUBLIC KEY",
-			Bytes: pubKeyBytes,
-		})
-
-		// Register with generator KMS (just for completeness)
-		err = kms.RegisterAdmin(adminPubKeyPEMs[i])
-		require.NoError(t, err, "Failed to register admin")
-	}
-
 	// Unlock the KMS with shares
-	recoveryKms := NewShamirKMSRecovery(3)
-	for i := 0; i < 5; i++ {
-		err = recoveryKms.RegisterAdmin(adminPubKeyPEMs[i])
-		require.NoError(t, err)
-	}
+	recoveryKms, err := NewShamirKMSRecovery(ShamirConfig{3, adminCerts})
+	require.NoError(t, err)
 
 	// Sign and submit shares
 	for i := 0; i < 3; i++ {
-		hash := sha256.Sum256(shares[i])
-		signature, err := ecdsa.SignASN1(rand.Reader, adminKeys[i], hash[:])
+		signature, err := SignShare(shares[i], adminKeys[i])
 		require.NoError(t, err)
 
-		err = recoveryKms.SubmitShare(i, shares[i], signature, adminPubKeyPEMs[i])
+		err = recoveryKms.SubmitShare(i, shares[i], signature, adminCerts[i])
 		require.NoError(t, err)
 	}
 
@@ -295,7 +225,54 @@ func TestSignShare(t *testing.T) {
 	assert.NotEmpty(t, signature, "Signature should not be empty")
 
 	// Verify the signature
-	hash := sha256.Sum256(share)
-	valid := ecdsa.VerifyASN1(&privateKey.PublicKey, hash[:], signature)
+	valid := ecdsa.VerifyASN1(&privateKey.PublicKey, share, signature)
 	assert.True(t, valid, "Signature should be valid")
+}
+
+// SplitMasterKey splits a master key into shares using Shamir's Secret Sharing algorithm.
+// This is a helper function that can be used separately from the ShamirKMS when
+// custom share generation is needed.
+//
+// Parameters:
+//   - masterKey: The master key to split (should be at least 32 bytes)
+//   - totalShares: The total number of shares to generate
+//   - threshold: The minimum number of shares needed to reconstruct the key
+//
+// Returns:
+//   - The generated shares
+//   - Error if the splitting operation fails
+func SplitMasterKey(masterKey []byte, totalShares, threshold int) ([][]byte, error) {
+	if len(masterKey) < 32 {
+		return nil, errors.New("master key must be at least 32 bytes")
+	}
+
+	return shamir.Split(masterKey, totalShares, threshold)
+}
+
+func randomAdmin(t *testing.T) (*ecdsa.PrivateKey, []byte) {
+	// Generate valid ECDSA key
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err, "Failed to generate test key")
+
+	pubKeyBytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	require.NoError(t, err, "Failed to marshal public key")
+
+	pubKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: pubKeyBytes,
+	})
+
+	return privateKey, pubKeyPEM
+}
+
+func randomAdmins(t *testing.T, n int) ([]*ecdsa.PrivateKey, [][]byte) {
+	pkeys := []*ecdsa.PrivateKey{}
+	r := [][]byte{}
+	for _ = range n {
+		pk, cert := randomAdmin(t)
+		pkeys = append(pkeys, pk)
+		r = append(r, cert)
+	}
+
+	return pkeys, r
 }

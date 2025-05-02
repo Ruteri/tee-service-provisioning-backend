@@ -108,41 +108,55 @@
 //	masterKey := make([]byte, 32)
 //	rand.Read(masterKey)
 //
+//	// Prepare admin public keys
+//	adminPubKeys := [][]byte{
+//	    adminPubKey1PEM,
+//	    adminPubKey2PEM,
+//	    adminPubKey3PEM,
+//	    adminPubKey4PEM,
+//	    adminPubKey5PEM,
+//	}
+//
 //	// Create a ShamirKMS with a 3-of-5 threshold
-//	shamirKMS, shares, err := kms.NewShamirKMS(masterKey, 3, 5)
+//	config := kms.ShamirConfig{
+//	    Threshold:    3,
+//	    AdminPubKeys: adminPubKeys,
+//	}
+//
+//	shamirKMS, shares, err := kms.NewShamirKMS(masterKey, config)
 //	if err != nil {
 //	    log.Fatalf("Failed to create ShamirKMS: %v", err)
 //	}
 //
-//	// Register administrators (in a production system, these would be loaded from configuration)
-//	for i := 0; i < 5; i++ {
-//	    // In production, these would be pre-generated and securely stored
-//	    adminKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-//
-//	    // Convert public key to PEM
-//	    pubKeyBytes, _ := x509.MarshalPKIXPublicKey(&adminKey.PublicKey)
-//	    pubKeyPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubKeyBytes})
-//
-//	    // Register the admin
-//	    shamirKMS.RegisterAdmin(pubKeyPEM)
-//
+//	// Securely distribute shares to admins
+//	for i, share := range shares {
 //	    // Sign share with admin's private key
-//	    signature, _ := kms.SignShare(shares[i], adminKey)
+//	    signature, _ := kms.SignShare(share, adminKeys[i])
 //
-//	    // Securely distribute to admin: shares[i], signature, adminKey
+//	    // Securely distribute to admin: share, signature, adminKey
 //	    fmt.Printf("Admin %d: please securely store your share and private key\n", i+1)
 //	}
 //
 // # Usage Example: ShamirKMS (Recovery)
 //
-//	// Create a ShamirKMS in recovery mode with a threshold of 3
-//	shamirKMS := kms.NewShamirKMSRecovery(3)
+//	// Prepare admin public keys (same as during setup)
+//	adminPubKeys := [][]byte{
+//	    adminPubKey1PEM,
+//	    adminPubKey2PEM,
+//	    adminPubKey3PEM,
+//	    adminPubKey4PEM,
+//	    adminPubKey5PEM,
+//	}
 //
-//	// Register administrator public keys (loaded from configuration)
-//	for i := 0; i < 5; i++ {
-//	    // Load admin public key from secure configuration
-//	    adminPubKeyPEM := loadAdminPublicKey(i)
-//	    shamirKMS.RegisterAdmin(adminPubKeyPEM)
+//	// Create a ShamirKMS in recovery mode with a threshold of 3
+//	config := kms.ShamirConfig{
+//	    Threshold:    3,
+//	    AdminPubKeys: adminPubKeys,
+//	}
+//
+//	shamirKMS, err := kms.NewShamirKMSRecovery(config)
+//	if err != nil {
+//	    log.Fatalf("Failed to create recovery KMS: %v", err)
 //	}
 //
 //	// Administrators submit their shares
@@ -156,7 +170,7 @@
 //	    signature, _ := kms.SignShare(share, adminKey)
 //
 //	    // Admin submits their share to the KMS
-//	    err := shamirKMS.SubmitShare(i, share, signature, getAdminPublicKeyPEM(adminKey))
+//	    err := shamirKMS.SubmitShare(i, share, signature, adminPubKeyPEM[i])
 //	    if err != nil {
 //	        log.Printf("Share submission failed: %v", err)
 //	    }

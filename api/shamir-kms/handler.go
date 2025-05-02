@@ -1,10 +1,3 @@
-// Package handlers implements a unified HTTP server for a TEE registry system
-// with secure KMS bootstrapping capabilities.
-//
-// This package provides a complete solution for secure KMS initialization
-// using Shamir's Secret Sharing with a zero-trust distribution model.
-// Shares are individually encrypted for each admin using their public keys,
-// ensuring no admin can access shares intended for others.
 package shamirkms
 
 import (
@@ -103,9 +96,7 @@ type AdminHandler struct {
 	shamirKMS    *kms.ShamirKMS          // Will be nil until bootstrapped
 	completeChan chan struct{}           // Signals when bootstrap is complete
 
-	// Generation parameters (stored for recovery)
-	threshold   int
-	totalShares int
+	shamirConfig kms.ShamirConfig
 }
 
 // NewAdminHandler creates a new admin handler for KMS bootstrap operations.
@@ -116,14 +107,31 @@ type AdminHandler struct {
 //
 // Returns:
 //   - Configured AdminHandler instance ready to handle bootstrap requests
-func NewAdminHandler(log *slog.Logger, adminPubKeys map[string][]byte) *AdminHandler {
+func NewAdminHandler(log *slog.Logger, threshold int, adminPubKeys map[string][]byte) (*AdminHandler, error) {
+	shamirConfig := kms.ShamirConfig{
+		Threshold: threshold,
+	}
+
+	if len(adminPubKeys) < threshold {
+		return nil, errors.New("threshold larger than total shares")
+	}
+
+	if threshold < 2 {
+		return nil, errors.New("threshold smaller than 2")
+	}
+
+	for _, pubkey := range adminPubKeys {
+		shamirConfig.AdminPubKeys = append(shamirConfig.AdminPubKeys, pubkey)
+	}
+
 	return &AdminHandler{
 		log:          log,
 		state:        StateInitial,
 		adminPubKeys: adminPubKeys,
 		adminShares:  make(map[string]*SecureShare),
 		completeChan: make(chan struct{}),
-	}
+		shamirConfig: shamirConfig,
+	}, nil
 }
 
 // WaitForBootstrap blocks until the bootstrap process is complete or the context is cancelled.
@@ -131,14 +139,6 @@ func NewAdminHandler(log *slog.Logger, adminPubKeys map[string][]byte) *AdminHan
 // This method is typically called by the main application to coordinate startup:
 // the registry server should wait for KMS bootstrap to complete before accepting
 // regular TEE attestation requests.
-//
-// Parameters:
-//   - ctx: Context that can be used to cancel the wait
-//
-// Returns:
-//   - Configured ShamirKMS if bootstrap completed
-//   - Error if the context is cancelled before completion
-//   - nil if the bootstrap process completes successfully
 func (h *AdminHandler) WaitForBootstrap(ctx context.Context) (*kms.ShamirKMS, error) {
 	select {
 	case <-h.completeChan:
@@ -150,12 +150,8 @@ func (h *AdminHandler) WaitForBootstrap(ctx context.Context) (*kms.ShamirKMS, er
 
 // GetKMS returns the initialized ShamirKMS once bootstrap is complete.
 //
-// The returned KMS will be nil until bootstrap is complete. Applications should
+// The returned KMS is nil until bootstrap is complete. Applications should
 // check the bootstrap state or wait for completion before using this method.
-//
-// Returns:
-//   - The initialized ShamirKMS if bootstrap is complete
-//   - nil if bootstrap is not yet complete
 func (h *AdminHandler) GetKMS() *kms.ShamirKMS {
 
 	if h.state != StateComplete {
@@ -166,12 +162,11 @@ func (h *AdminHandler) GetKMS() *kms.ShamirKMS {
 
 // RegisterRoutes configures HTTP router for the admin API.
 //
-// The router provides endpoints for:
-//   - Checking bootstrap status
-//   - Generating and distributing shares
-//   - Initiating recovery
-//   - Submitting shares during recovery
-//   - Retrieving shares (each admin can only get their own share)
+// The router provides endpoints:
+//   - /admin/status: check bootstrap status
+//   - /admin/init/generate: generate and distributing shares
+//   - /admin/init/recover: initiate recovery
+//   - /admin/share: fetch share during generation, or submit share during recovery
 func (h *AdminHandler) RegisterRoutes(r chi.Router) {
 	r.Get("/admin/status", h.handleStatus)
 	r.Post("/admin/init/generate", h.handleInitGenerate)
@@ -191,8 +186,8 @@ func (h *AdminHandler) RegisterRoutes(r chi.Router) {
 func (h *AdminHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
 	h.mu.RLock()
 	state := h.state
-	threshold := h.threshold
-	totalShares := h.totalShares
+	threshold := h.shamirConfig.Threshold
+	totalShares := len(h.shamirConfig.AdminPubKeys)
 	h.mu.RUnlock()
 
 	resp := map[string]interface{}{
@@ -219,7 +214,6 @@ func (h *AdminHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
 //   - Returns metadata about the share distribution (not the actual shares)
 //
 // Endpoint: POST /admin/init/generate
-// Body: {"threshold": <int>, "total_shares": <int>}
 func (h *AdminHandler) handleInitGenerate(w http.ResponseWriter, r *http.Request) {
 	// Verify admin
 	adminID, ok := h.verifyAdmin(r)
@@ -236,34 +230,6 @@ func (h *AdminHandler) handleInitGenerate(w http.ResponseWriter, r *http.Request
 	}
 	defer h.mu.Unlock()
 
-	// Parse parameters
-	var params struct {
-		Threshold   int `json:"threshold"`
-		TotalShares int `json:"total_shares"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	if params.Threshold < 2 {
-		http.Error(w, "Threshold must be at least 2", http.StatusBadRequest)
-		return
-	}
-
-	if params.TotalShares < params.Threshold {
-		http.Error(w, "Total shares must be at least equal to threshold", http.StatusBadRequest)
-		return
-	}
-
-	// Verify we have enough admins for the requested number of shares
-	if len(h.adminPubKeys) < params.TotalShares {
-		http.Error(w, fmt.Sprintf("Not enough admins (%d) for the requested number of shares (%d)",
-			len(h.adminPubKeys), params.TotalShares), http.StatusBadRequest)
-		return
-	}
-
 	// Generate cryptographically secure master key
 	masterKey := make([]byte, 32)
 	if _, err := rand.Read(masterKey); err != nil {
@@ -273,18 +239,11 @@ func (h *AdminHandler) handleInitGenerate(w http.ResponseWriter, r *http.Request
 	}
 
 	// Create ShamirKMS and generate shares
-	shamirKMS, shares, err := kms.NewShamirKMS(masterKey, params.Threshold, params.TotalShares)
+	shamirKMS, shares, err := kms.NewShamirKMS(masterKey, h.shamirConfig)
 	if err != nil {
 		h.log.Error("Failed to create ShamirKMS", "err", err, "adminID", adminID)
 		http.Error(w, "Failed to create KMS: "+err.Error(), http.StatusInternalServerError)
 		return
-	}
-
-	// Register admin public keys with KMS
-	for id, pubKeyPEM := range h.adminPubKeys {
-		if err := shamirKMS.RegisterAdmin(pubKeyPEM); err != nil {
-			h.log.Error("Failed to register admin", "adminID", id, "err", err)
-		}
 	}
 
 	// Get admin IDs for share assignment
@@ -324,8 +283,6 @@ func (h *AdminHandler) handleInitGenerate(w http.ResponseWriter, r *http.Request
 	// Store the KMS and parameters
 	h.state = StateGeneratingShares
 	h.shamirKMS = shamirKMS
-	h.threshold = params.Threshold
-	h.totalShares = params.TotalShares
 	h.adminShares = adminShares
 
 	// Return metadata about the shares, not the actual encrypted shares
@@ -340,8 +297,8 @@ func (h *AdminHandler) handleInitGenerate(w http.ResponseWriter, r *http.Request
 	resp := map[string]interface{}{
 		"message":           "KMS initialized and shares generated successfully",
 		"share_assignments": shareAssignments,
-		"threshold":         params.Threshold,
-		"total_shares":      params.TotalShares,
+		"threshold":         h.shamirConfig.Threshold,
+		"total_shares":      len(h.shamirConfig.AdminPubKeys),
 		"instructions":      "Each admin must retrieve their share using GET /admin/share",
 	}
 
@@ -349,7 +306,7 @@ func (h *AdminHandler) handleInitGenerate(w http.ResponseWriter, r *http.Request
 	json.NewEncoder(w).Encode(resp)
 
 	h.log.Info("Master key generated and shares prepared for distribution", "adminID", adminID,
-		"threshold", params.Threshold, "totalShares", params.TotalShares)
+		"threshold", h.shamirConfig.Threshold, "totalShares", len(h.shamirConfig.AdminPubKeys))
 }
 
 // handleGetShare allows an admin to retrieve their share.
@@ -435,53 +392,37 @@ func (h *AdminHandler) handleInitRecover(w http.ResponseWriter, r *http.Request)
 	}
 
 	h.mu.Lock()
-	defer h.mu.Unlock()
-
 	if h.state != StateInitial {
+		h.mu.Unlock()
 		http.Error(w, "Bootstrap already in progress or complete", http.StatusBadRequest)
 		return
 	}
-
-	// Parse parameters
-	var params struct {
-		Threshold int `json:"threshold"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	if params.Threshold < 2 {
-		http.Error(w, "Threshold must be at least 2", http.StatusBadRequest)
-		return
-	}
+	defer h.mu.Unlock()
 
 	// Create recovery KMS
-	shamirKMS := kms.NewShamirKMSRecovery(params.Threshold)
-
-	// Register admin public keys with KMS
-	for id, pubKeyPEM := range h.adminPubKeys {
-		if err := shamirKMS.RegisterAdmin(pubKeyPEM); err != nil {
-			h.log.Error("Failed to register admin", "adminID", id, "err", err)
-		}
+	adminPubkeys := [][]byte{}
+	for _, pubkey := range h.adminPubKeys {
+		adminPubkeys = append(adminPubkeys, pubkey)
+	}
+	shamirKMS, err := kms.NewShamirKMSRecovery(h.shamirConfig)
+	if err != nil {
+		http.Error(w, fmt.Errorf("could not initialize kms: %w", err).Error(), http.StatusInternalServerError)
+		return
 	}
 
 	h.shamirKMS = shamirKMS
-	h.threshold = params.Threshold
-	h.totalShares = len(h.adminPubKeys)
 	h.state = StateRecovering
 
 	resp := map[string]interface{}{
 		"message":      "Recovery mode initiated",
-		"threshold":    params.Threshold,
+		"threshold":    h.shamirConfig.Threshold,
 		"instructions": "Admins must submit their shares using POST /admin/share",
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 
-	h.log.Info("KMS recovery process initiated", "adminID", adminID, "threshold", params.Threshold)
+	h.log.Info("KMS recovery process initiated", "adminID", adminID, "threshold", h.shamirConfig.Threshold)
 }
 
 // handleSubmitShare handles share submissions during recovery.

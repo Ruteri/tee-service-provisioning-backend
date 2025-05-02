@@ -8,13 +8,14 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/base32"
 	"encoding/binary"
 	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
 
-	"golang.org/x/crypto/argon2"
+	"golang.org/x/crypto/hkdf"
 )
 
 // EncryptWithPublicKey encrypts data using ECIES with the given public key PEM.
@@ -145,23 +146,25 @@ func DecryptWithPrivateKey(privateKeyPEM []byte, encryptedData []byte) ([]byte, 
 	return plaintext, nil
 }
 
-// DeriveDiskKey creates a deterministic encryption key from a CSR and secret using Argon2id KDF.
+// DeriveDiskKey creates a deterministic encryption key from a label and secret using HKDF.
 // This function can be used to derive encryption keys for TEE disk protection, ensuring
 // that the same key can be regenerated given the same inputs.
 //
 // Parameters:
-//   - csr: Certificate Signing Request bytes, used as part of the salt
+//   - label: used as part of the salt
 //   - secret: Secret material for key derivation
 //
 // Returns:
 //   - Derived encryption key as a string
-func DeriveDiskKey(csr []byte, secret []byte) string {
+//   - Error if could not derive
+func DeriveDiskKey(label []byte, secret []byte) (string, error) {
 	// Use Argon2id with recommended parameters
-	salt := append([]byte("TEE-DISK-KEY-"), csr[:]...) // Use part of CSR as salt
-
-	// Parameters: time=1, memory=64*1024, threads=4, keyLen=32
-	key := argon2.IDKey(secret, salt, 1, 64*1024, 4, 32)
+	key := make([]byte, 32)
+	_, err := hkdf.New(sha256.New, append(secret, label...), nil, nil).Read(key)
+	if err != nil {
+		return "", err
+	}
 
 	// Convert to string format if needed or return as bytes
-	return string(key)
+	return base32.StdEncoding.EncodeToString(key), nil
 }

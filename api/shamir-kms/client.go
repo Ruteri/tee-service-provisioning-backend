@@ -99,18 +99,7 @@ func (c *AdminClient) GetStatus() (string, error) {
 //   - Error if the request fails
 func (c *AdminClient) InitGenerate(threshold, totalShares int) (map[int]string, error) {
 	url := fmt.Sprintf("%s/admin/init/generate", c.baseURL)
-
-	reqBody := map[string]interface{}{
-		"threshold":    threshold,
-		"total_shares": totalShares,
-	}
-
-	reqJSON, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request body: %w", err)
-	}
-
-	req, err := CreateSignedAdminRequest("POST", url, reqJSON, c.adminID, c.privateKey)
+	req, err := CreateSignedAdminRequest("POST", url, nil, c.adminID, c.privateKey)
 	if err != nil {
 		return nil, err
 	}
@@ -156,17 +145,7 @@ func (c *AdminClient) InitGenerate(threshold, totalShares int) (map[int]string, 
 //   - Error if the request fails
 func (c *AdminClient) InitRecover(threshold int) error {
 	url := fmt.Sprintf("%s/admin/init/recover", c.baseURL)
-
-	reqBody := map[string]interface{}{
-		"threshold": threshold,
-	}
-
-	reqJSON, err := json.Marshal(reqBody)
-	if err != nil {
-		return fmt.Errorf("failed to marshal request body: %w", err)
-	}
-
-	req, err := CreateSignedAdminRequest("POST", url, reqJSON, c.adminID, c.privateKey)
+	req, err := CreateSignedAdminRequest("POST", url, nil, c.adminID, c.privateKey)
 	if err != nil {
 		return err
 	}
@@ -361,7 +340,6 @@ func CreateSignedAdminRequest(method, reqUrl string, body []byte, adminID string
 		message += string(body)
 	}
 
-	// Compute the hash of the message
 	hash := sha256.Sum256([]byte(message))
 
 	// Sign the hash with the admin's private key

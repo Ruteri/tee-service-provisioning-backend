@@ -57,6 +57,10 @@ var flags []cli.Flag = []cli.Flag{
 		Value: "",
 		Usage: "JSON file with admin public keys for ShamirKMS (required if kms-type is 'shamir')",
 	},
+	&cli.IntFlag{
+		Name:  "shamirkms-threshold",
+		Usage: "Threshold to use for shamir kms generation and recovery",
+	},
 	&cli.StringFlag{
 		Name:  "shamirkms-listen-addr",
 		Value: "127.0.0.1:8081",
@@ -117,6 +121,7 @@ func main() {
 			kmsType := cCtx.String("kms-type")
 			kmsRemoteAttestationProvider := cCtx.String("remote-attestation-provider")
 			adminKeysFile := cCtx.String("shamirkms-admin-keys-file")
+			shamirkmsThreshold := cCtx.Int("shamirkms-threshold")
 			bootstrapTimeout := cCtx.Int("shamirkms-bootstrap-timeout")
 			simpleKMSSeed := cCtx.String("simple-kms-seed")
 			logJSON := cCtx.Bool("log-json")
@@ -221,7 +226,10 @@ func main() {
 
 				skmsServerCfg := *cfg
 				skmsServerCfg.ListenAddr = shamirkmsListenAddr
-				adminHandler := shamirkms.NewAdminHandler(skmsServerCfg.Log, adminKeys)
+				adminHandler, err := shamirkms.NewAdminHandler(skmsServerCfg.Log, shamirkmsThreshold, adminKeys)
+				if err != nil {
+					return fmt.Errorf("could not initialize kms admin handler: %w", err)
+				}
 
 				// Create base server with the admin handler as a route registrar
 				baseServer, err := server.New(&skmsServerCfg, adminHandler)

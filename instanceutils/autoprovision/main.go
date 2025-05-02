@@ -342,7 +342,10 @@ func (p *Provisioner) Do() error {
 			return fmt.Errorf("could not generate a random disk id")
 		}
 
-		diskKey := cryptoutils.DeriveDiskKey(diskLabel[:], []byte(parsedResponse.AppPrivkey))
+		diskKey, err := cryptoutils.DeriveDiskKey(diskLabel[:], []byte(parsedResponse.AppPrivkey))
+		if err != nil {
+			return fmt.Errorf("could not derive disk key")
+		}
 
 		err = setupNewDisk(p.DiskConfig, diskKey)
 		if err != nil {
@@ -366,7 +369,10 @@ func (p *Provisioner) Do() error {
 			return fmt.Errorf("failed to read disk label from LUKS: %w", err)
 		}
 
-		diskKey := cryptoutils.DeriveDiskKey(diskLabel[:], []byte(parsedResponse.AppPrivkey))
+		diskKey, err := cryptoutils.DeriveDiskKey(diskLabel[:], []byte(parsedResponse.AppPrivkey))
+		if err != nil {
+			return fmt.Errorf("could not derive disk key")
+		}
 
 		if err = mountExistingDisk(p.DiskConfig, diskKey); err != nil {
 			return fmt.Errorf("disk mounting failed: %w", err)

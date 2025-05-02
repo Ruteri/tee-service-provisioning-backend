@@ -100,6 +100,10 @@ bindings: ## Generate golang bindings for the contract
 	jq -r '.bytecode.object' out/OnchainRegistry.sol/Registry.json > Registry.bin
 	abigen --abi=Registry.abi --bin=Registry.bin --pkg=registry --out=bindings/registry/registry.go
 
+.PHONY: deploy-registry
+deploy-registry: ## Deploy and verify registry on Sepolia. Requires etherscan API key. Asks for private key.
+	forge c --verify --rpc-url https://1rpc.io/sepolia --verifier etherscan -i -C contracts src/OnchainRegistry.sol:Registry --broadcast
+
 .PHONY: context
 context: ## Generate godoc for all files
 	# Needs `go install github.com/ruteri/gocontext@latest`

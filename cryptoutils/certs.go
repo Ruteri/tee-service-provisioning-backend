@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -12,8 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-
-	eth_crypto "github.com/ethereum/go-ethereum/crypto"
 )
 
 // VerifyCertificate validates that a certificate matches a given private key and has the expected common name.
@@ -151,5 +150,6 @@ func RandomCert() (tls.Certificate, error) {
 }
 
 func DERPubkeyHash(pubkeyDER []byte) []byte {
-	return eth_crypto.Keccak256(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubkeyDER}))
+	shaHash := sha256.Sum256(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubkeyDER}))
+	return shaHash[:]
 }

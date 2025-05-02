@@ -1,6 +1,8 @@
 package cryptoutils
 
 import (
+	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
@@ -192,22 +194,17 @@ type AppPrivkey []byte
 func NewAppPrivkey(data []byte) (AppPrivkey, error) {
 	// Validate PEM format
 	block, _ := pem.Decode(data)
-	if block == nil || (block.Type != "PRIVATE KEY" && block.Type != "RSA PRIVATE KEY" &&
-		block.Type != "EC PRIVATE KEY") {
+	if block == nil || (block.Type != "PRIVATE KEY" && block.Type != "EC PRIVATE KEY") {
 		return AppPrivkey{}, errors.New("invalid private key: not in PEM format or not a private key")
 	}
 
 	// Try to parse it as a PKCS8 private key
 	_, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 	if err != nil {
-		// Try to parse it as a PKCS1 RSA private key
-		_, err = x509.ParsePKCS1PrivateKey(block.Bytes)
+		// Try to parse it as an EC private key
+		_, err = x509.ParseECPrivateKey(block.Bytes)
 		if err != nil {
-			// Try to parse it as an EC private key
-			_, err = x509.ParseECPrivateKey(block.Bytes)
-			if err != nil {
-				return AppPrivkey{}, fmt.Errorf("invalid private key structure: %w", err)
-			}
+			return AppPrivkey{}, fmt.Errorf("invalid private key structure: %w", err)
 		}
 	}
 
@@ -233,12 +230,6 @@ func (priv AppPrivkey) GetPrivateKey() (interface{}, error) {
 		return key, nil
 	}
 
-	// Try to parse it as a PKCS1 RSA private key
-	key, err = x509.ParsePKCS1PrivateKey(block.Bytes)
-	if err == nil {
-		return key, nil
-	}
-
 	// Try to parse it as an EC private key
 	key, err = x509.ParseECPrivateKey(block.Bytes)
 	if err == nil {
@@ -246,4 +237,21 @@ func (priv AppPrivkey) GetPrivateKey() (interface{}, error) {
 	}
 
 	return nil, errors.New("failed to parse private key")
+}
+
+func (priv AppPrivkey) GetPublicKey() (interface{}, error) {
+	parsedPriv, err := priv.GetPrivateKey()
+	if err != nil {
+		return nil, err
+	}
+
+	// Extract public key based on the private key type
+	switch key := parsedPriv.(type) {
+	case *ecdsa.PrivateKey:
+		return &key.PublicKey, nil
+	case ed25519.PrivateKey:
+		return key.Public(), nil
+	default:
+		return nil, fmt.Errorf("unsupported private key type: %T", parsedPriv)
+	}
 }

@@ -49,6 +49,24 @@ func (k *SimpleKMS) WithAttestationProvider(provider cryptoutils.AttestationProv
 	return newkms
 }
 
+// getCA generates the app's CA key and PEM-encoded certificate
+// It derives the CA key from the contract address and creates a self-signed certificate.
+func (k *SimpleKMS) getCA(contractAddr interfaces.ContractAddress) (*ecdsa.PrivateKey, interfaces.CACert, error) {
+	// Derive CA key from contract address
+	caKey, err := k.deriveCAKey(contractAddr)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Create a self-signed CA certificate
+	certPEM, err := createCACertificate(caKey, interfaces.NewAppCommonName(contractAddr))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return caKey, certPEM, nil
+}
+
 // GetPKI returns the CA certificate, app public key and attestation for a contract.
 // It derives these cryptographic materials deterministically from the contract address.
 // The returned AppPKI contains:
@@ -56,26 +74,24 @@ func (k *SimpleKMS) WithAttestationProvider(provider cryptoutils.AttestationProv
 //   - Application public key in PEM format
 //   - Attestation data that can be verified by external parties
 func (k *SimpleKMS) GetPKI(contractAddr interfaces.ContractAddress) (interfaces.AppPKI, error) {
-	// Derive CA key from contract address
-	caKey, err := k.deriveKey(contractAddr, "ca")
+	_, certPEM, err := k.getCA(contractAddr)
 	if err != nil {
-		return interfaces.AppPKI{}, err
-	}
-
-	// Create a self-signed CA certificate
-	certPEM, err := createCACertificate(caKey, interfaces.NewAppCommonName(contractAddr))
-	if err != nil {
-		return interfaces.AppPKI{}, err
+		return interfaces.AppPKI{}, fmt.Errorf("failed to generate app CA: %w", err)
 	}
 
 	// Derive app key from contract address
-	appKey, err := k.deriveKey(contractAddr, "app")
+	appKey, err := k.GetAppPrivkey(contractAddr)
+	if err != nil {
+		return interfaces.AppPKI{}, err
+	}
+
+	appPubkey, err := appKey.GetPublicKey()
 	if err != nil {
 		return interfaces.AppPKI{}, err
 	}
 
 	// Extract and encode public key
-	pubKeyBytes, err := x509.MarshalPKIXPublicKey(&appKey.PublicKey)
+	pubKeyBytes, err := x509.MarshalPKIXPublicKey(appPubkey)
 	if err != nil {
 		return interfaces.AppPKI{}, fmt.Errorf("failed to marshal public key: %w", err)
 	}
@@ -99,7 +115,7 @@ func (k *SimpleKMS) GetPKI(contractAddr interfaces.ContractAddress) (interfaces.
 // The private key is returned in PEM format (PKCS#8).
 // This method assumes attestation and identity verification have already been performed.
 func (k *SimpleKMS) GetAppPrivkey(contractAddr interfaces.ContractAddress) (interfaces.AppPrivkey, error) {
-	appKey, err := k.deriveKey(contractAddr, "app")
+	appKey, err := k.deriveAppKey(contractAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -125,13 +141,7 @@ func (k *SimpleKMS) GetAppPrivkey(contractAddr interfaces.ContractAddress) (inte
 //
 // The returned certificate is in PEM format.
 func (k *SimpleKMS) SignCSR(contractAddr interfaces.ContractAddress, csr interfaces.TLSCSR) (interfaces.TLSCert, error) {
-	// Parse CSR
-	block, _ := pem.Decode(csr)
-	if block == nil {
-		return nil, errors.New("failed to decode CSR")
-	}
-
-	parsedCSR, err := x509.ParseCertificateRequest(block.Bytes)
+	parsedCSR, err := csr.GetX509CSR()
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse CSR: %w", err)
 	}
@@ -141,23 +151,12 @@ func (k *SimpleKMS) SignCSR(contractAddr interfaces.ContractAddress, csr interfa
 		return nil, fmt.Errorf("CSR signature verification failed: %w", err)
 	}
 
-	// Get CA key and certificate
-	caKey, err := k.deriveKey(contractAddr, "ca")
+	caKey, caCertPEM, err := k.getCA(contractAddr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to generate app CA: %w", err)
 	}
 
-	caCertPEM, err := createCACertificate(caKey, interfaces.NewAppCommonName(contractAddr))
-	if err != nil {
-		return nil, err
-	}
-
-	caBlock, _ := pem.Decode(caCertPEM)
-	if caBlock == nil {
-		return nil, errors.New("failed to decode CA certificate")
-	}
-
-	caCert, err := x509.ParseCertificate(caBlock.Bytes)
+	caCert, err := caCertPEM.GetX509Cert()
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse CA certificate: %w", err)
 	}
@@ -194,15 +193,14 @@ func (k *SimpleKMS) SignCSR(contractAddr interfaces.ContractAddress, csr interfa
 	}), nil
 }
 
-// deriveKey derives a key from a contract address and purpose (e.g., "ca" or "app").
-// It creates a deterministic seed by hashing the master key, contract address, and purpose.
+// deriveCAKey derives a CA key from a contract address
 // The resulting key is an ECDSA key using the P-256 curve.
-func (k *SimpleKMS) deriveKey(contractAddr interfaces.ContractAddress, purpose string) (*ecdsa.PrivateKey, error) {
+func (k *SimpleKMS) deriveCAKey(contractAddr interfaces.ContractAddress) (*ecdsa.PrivateKey, error) {
 	// Create deterministic seed
 	h := sha256.New()
 	h.Write(k.masterKey)
 	h.Write(contractAddr[:])
-	h.Write([]byte(purpose))
+	h.Write([]byte("ca"))
 	seed := h.Sum(nil)
 
 	// Create EC private key from seed
@@ -216,6 +214,36 @@ func (k *SimpleKMS) deriveKey(contractAddr interfaces.ContractAddress, purpose s
 
 	// Generate public key
 	privateKey.PublicKey.X, privateKey.PublicKey.Y = curve.ScalarBaseMult(seed[:32])
+
+	// TODO: sanity check that X and Y are on curve and priv does not need trimming
+
+	return privateKey, nil
+}
+
+// deriveAppKey derives an application key from a contract address
+// The resulting key is an ECDSA key using the P-256 curve.
+// TODO: Use Ethereum's curve (requires a refactor of marshaling/unmarshaling since x509 does not support it)
+func (k *SimpleKMS) deriveAppKey(contractAddr interfaces.ContractAddress) (*ecdsa.PrivateKey, error) {
+	// Create deterministic seed
+	h := sha256.New()
+	h.Write(k.masterKey)
+	h.Write(contractAddr[:])
+	h.Write([]byte("app"))
+	seed := h.Sum(nil)
+
+	// Create EC private key from seed
+	curve := elliptic.P256() // Use P-256 for all keys
+	privateKey := &ecdsa.PrivateKey{
+		PublicKey: ecdsa.PublicKey{
+			Curve: curve,
+		},
+		D: new(big.Int).SetBytes(seed[:32]), // Use first 32 bytes as private key
+	}
+
+	// Generate public key
+	privateKey.PublicKey.X, privateKey.PublicKey.Y = curve.ScalarBaseMult(seed[:32])
+
+	// TODO: sanity check that X and Y are on curve and priv does not need trimming
 
 	return privateKey, nil
 }
