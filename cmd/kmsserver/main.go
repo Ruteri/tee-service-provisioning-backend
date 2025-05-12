@@ -7,38 +7,38 @@ import (
 	"syscall"
 
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/ruteri/tee-service-provisioning-backend/api/provisioner"
+	"github.com/ruteri/tee-service-provisioning-backend/api/kmshandler"
+	"github.com/ruteri/tee-service-provisioning-backend/api/pkihandler"
 	"github.com/ruteri/tee-service-provisioning-backend/api/server"
 	"github.com/ruteri/tee-service-provisioning-backend/cmd/flags"
 	"github.com/ruteri/tee-service-provisioning-backend/cmd/kmscommon"
 	"github.com/ruteri/tee-service-provisioning-backend/registry"
-	"github.com/ruteri/tee-service-provisioning-backend/storage"
 	"github.com/urfave/cli/v2"
 )
 
-var RpcAddrFlag = &cli.StringFlag{
-	Name:  "rpc-addr",
-	Value: "http://127.0.0.1:8545",
-	Usage: "address to connect to RPC",
+var KmsServiceLogFlag = flags.LogServiceFlagFn("kms")
+
+var KmsPKIListenAddrFlag = &cli.StringFlag{
+	Name:  "pki-listen-addr",
+	Value: "127.0.0.1:8081",
+	Usage: "address to listen on for API",
 }
-var PrivisioningListenAddrFlag = &cli.StringFlag{
-	Name:  "listen-addr",
-	Value: "127.0.0.1:8080",
+var KmsAttestedListenAddrFlag = &cli.StringFlag{
+	Name:  "kms-listen-addr",
+	Value: "127.0.0.1:8082",
 	Usage: "address to listen on for API",
 }
 
-var ProvisioningServiceLogFlag = flags.LogServiceFlagFn("provisioning")
-var ProvisioningFlags = append([]cli.Flag{RpcAddrFlag, PrivisioningListenAddrFlag, ProvisioningServiceLogFlag}, append(kmscommon.KmsFlags, flags.CommonFlags...)...)
-
 func main() {
 	app := &cli.App{
-		Name:  "registry-server",
-		Usage: "Serve TEE registry API with secure KMS bootstrapping",
-		Flags: ProvisioningFlags,
+		Name:  "kms-server",
+		Usage: "Serve TEE KMS",
+		Flags: append(append(kmscommon.KmsFlags, []cli.Flag{KmsPKIListenAddrFlag, KmsAttestedListenAddrFlag, flags.RpcAddrFlag, KmsServiceLogFlag}...), flags.CommonFlags...),
 		Action: func(cCtx *cli.Context) error {
 			// Parse basic configuration
-			rpcAddress := cCtx.String("rpc-addr")
-			listenAddr := cCtx.String("listen-addr")
+			pkiListenAddr := cCtx.String(KmsPKIListenAddrFlag.Name)
+			attestedListenAddr := cCtx.String(KmsAttestedListenAddrFlag.Name)
+			rpcAddress := cCtx.String(flags.RpcAddrFlag.Name)
 
 			// Setup logger
 			logger := flags.SetupLogger(cCtx)
@@ -51,11 +51,8 @@ func main() {
 				return err
 			}
 
-			// Create registry factory and storage factory (don't depend on KMS)
+			// Create registry factory
 			registryFactory := registry.NewRegistryFactory(ethClient, ethClient)
-			storageFactory := storage.NewStorageBackendFactory(logger, registryFactory)
-
-			cfg := flags.ConfigureServer(cCtx, logger, listenAddr)
 
 			// Handle KMS initialization based on type
 			kmsImpl, err := kmscommon.SetupKMS(cCtx, logger)
@@ -66,17 +63,20 @@ func main() {
 
 			logger.Info("KMS initialized successfully")
 
-			// Create handler with the initialized KMS
-			handler := provisioner.NewHandler(kmsImpl, storageFactory, registryFactory, logger)
-
-			// Create server with registry handler
-			server, err := server.New(cfg, handler)
+			pkiServer, err := server.New(flags.ConfigureServer(cCtx, logger, pkiListenAddr), pkihandler.NewHandler(kmsImpl, logger))
 			if err != nil {
 				logger.Error("Failed to create server", "err", err)
 				return err
 			}
 
-			server.RunInBackground()
+			kmsServer, err := server.New(flags.ConfigureServer(cCtx, logger, attestedListenAddr), kmshandler.NewHandler(kmsImpl, registryFactory, logger))
+			if err != nil {
+				logger.Error("Failed to create server", "err", err)
+				return err
+			}
+
+			pkiServer.RunInBackground()
+			kmsServer.RunInBackground()
 
 			// Wait for termination signal
 			exit := make(chan os.Signal, 1)
@@ -87,7 +87,8 @@ func main() {
 			logger.Info("Shutdown signal received")
 
 			// Shutdown server gracefully
-			server.Shutdown()
+			pkiServer.Shutdown()
+			kmsServer.Shutdown()
 			logger.Info("Server shutdown complete")
 
 			return nil

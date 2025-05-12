@@ -18,9 +18,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/go-chi/chi/v5"
 	"github.com/ruteri/tee-service-provisioning-backend/api"
+	"github.com/ruteri/tee-service-provisioning-backend/api/kmshandler"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
@@ -144,7 +144,7 @@ func (h *Handler) HandleAppMetadata(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleRegister processes TEE instance registration requests.
-// It validates attestation evidence, verifies the instance's identity,
+// It verifies the instance's identity against governance,
 // and provides cryptographic materials and configuration if authorized.
 //
 // URL format: POST /api/attested/register/{contract_address}
@@ -168,16 +168,12 @@ func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse contract address from hex
-	contractAddrBytes, err := hex.DecodeString(contractAddrHex)
-	if err != nil || len(contractAddrBytes) != 20 {
+	contractAddr, err := interfaces.NewContractAddressFromHex(contractAddrHex)
+	if err != nil {
 		h.log.Error("Invalid contract address", "err", err, "address", contractAddrHex)
 		http.Error(w, "Invalid contract address format", http.StatusBadRequest)
 		return
 	}
-
-	var contractAddr interfaces.ContractAddress
-	copy(contractAddr[:], contractAddrBytes)
 
 	// Read CSR from request body
 	csr, err := io.ReadAll(r.Body)
@@ -238,7 +234,7 @@ func (h *Handler) handleRegister(r *http.Request, contractAddr interfaces.Contra
 	}
 
 	// Extract workload identity and operator identity from attestation evidence and CSR
-	identity, operatorAddress, err := h.parseWorkloadAndOperatorIdentity(r, registry, csr)
+	identity, operatorAddress, err := kmshandler.ParseWorkloadAndOperatorIdentity(r, registry, csr)
 	if err != nil {
 		return api.RegistrationResponse{}, fmt.Errorf("could not parse identity from request: %w", err)
 	}
@@ -273,60 +269,6 @@ func (h *Handler) handleRegister(r *http.Request, contractAddr interfaces.Contra
 	}
 
 	return api.RegistrationResponse{AppPrivkey: appPrivkey, TLSCert: tlsCert, Config: processedConfig}, nil
-}
-
-// parseWorkloadAndOperatorIdentity extracts workload identity from attestation measurements
-// and operator address from CSR signature extension if present. It performs the first phase of
-// the dual authorization process by validating the TEE attestation evidence and extracting any
-// operator signature.
-//
-// Parameters:
-//   - r: HTTP request containing attestation headers
-//   - registry: Application governance contract
-//   - csr: Certificate Signing Request potentially containing operator signature
-//
-// Returns:
-//   - Computed identity hash from attestation data
-//   - Recovered operator Ethereum address (zero if no signature present)
-//   - Error if attestation verification or signature recovery fails
-func (h *Handler) parseWorkloadAndOperatorIdentity(r *http.Request, registry interfaces.OnchainRegistry, csr interfaces.TLSCSR) ([32]byte, [20]byte, error) {
-	// Extract attestation type and measurements from ATLS headers
-	attestationType, measurements, err := cryptoutils.MeasurementsFromATLS(r)
-	if err != nil {
-		return [32]byte{}, [20]byte{}, fmt.Errorf("invalid measurements: %w", err)
-	}
-
-	// Calculate identity from attestation
-	identity, err := api.AttestationToIdentity(attestationType, measurements, registry)
-	if err != nil {
-		h.log.Debug("Failed to compute identity", "err", err, slog.String("attestationType", attestationType.StringID))
-		return [32]byte{}, [20]byte{}, fmt.Errorf("identity computation error: %w", err)
-	}
-
-	// Parse CSR to extract any operator signature extensions
-	parsedCsr, err := csr.GetX509CSR()
-	if err != nil {
-		h.log.Error("Failed to parse csr", "err", err)
-		return [32]byte{}, [20]byte{}, fmt.Errorf("csr parsing error: %w", err)
-	}
-
-	// Extract operator address from signature extension if present
-	var operatorAddress [20]byte
-	for _, ext := range parsedCsr.Extensions {
-		if ext.Id.Equal(api.OIDOperatorSignature) {
-			// Recover Ethereum address from signature over the CSR's public key
-			pubkey, err := crypto.SigToPub(cryptoutils.DERPubkeyHash(parsedCsr.RawSubjectPublicKeyInfo), ext.Value)
-			if err != nil {
-				h.log.Debug("Failed to recover signer from operator signature", "err", err)
-				return [32]byte{}, [20]byte{}, fmt.Errorf("operator signature verification error: %w", err)
-			}
-			// Convert public key to Ethereum address
-			operatorAddress = crypto.PubkeyToAddress(*pubkey)
-			h.log.Debug("Operator signature present", "operator", hex.EncodeToString(operatorAddress[:]))
-		}
-	}
-
-	return identity, operatorAddress, nil
 }
 
 // prepareAppMaterials retrieves the application private key and creates a signed TLS certificate.

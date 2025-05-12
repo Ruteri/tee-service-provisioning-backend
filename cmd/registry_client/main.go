@@ -8,6 +8,7 @@ import (
 
 	"github.com/ruteri/tee-service-provisioning-backend/api"
 	"github.com/ruteri/tee-service-provisioning-backend/api/provisioner"
+	"github.com/ruteri/tee-service-provisioning-backend/cmd/flags"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 	"github.com/urfave/cli/v2"
@@ -18,19 +19,6 @@ var flagServerAddr *cli.StringFlag = &cli.StringFlag{
 	Value: "http://127.0.0.1:8080",
 	Usage: "Provisioning server address to request",
 }
-var flagAppAddr *cli.StringFlag = &cli.StringFlag{
-	Name:     "app-contract",
-	Required: true,
-	Usage:    "Application governance contract address to request provisioning for. 40-char hex string with no 0x prefix",
-}
-var flagAttsetationType *cli.StringFlag = &cli.StringFlag{
-	Name:  "debug-set-attestation-type-header",
-	Usage: "If provided the provisioner will set the attestation type header",
-}
-var flagAttsetationMeasurement *cli.StringFlag = &cli.StringFlag{
-	Name:  "debug-set-attestation-measurement-header",
-	Usage: "If provided the provisioner will set the attestation measurement header",
-}
 
 const usage string = ``
 
@@ -39,7 +27,7 @@ func main() {
 		Name:  "registry client",
 		Usage: usage,
 		Flags: []cli.Flag{
-			flagAppAddr,
+			flags.FlagAppAddr,
 			flagServerAddr,
 		},
 		Commands: []*cli.Command{
@@ -48,8 +36,8 @@ func main() {
 				Usage:       "",
 				Description: "",
 				Flags: []cli.Flag{
-					flagAttsetationType,
-					flagAttsetationMeasurement,
+					flags.FlagAttsetationType,
+					flags.FlagAttsetationMeasurement,
 				},
 				Action: func(cCtx *cli.Context) error {
 					c, err := NewClientConfig(cCtx)
@@ -64,8 +52,8 @@ func main() {
 				Usage:       "",
 				Description: "",
 				Flags: []cli.Flag{
-					flagAttsetationType,
-					flagAttsetationMeasurement,
+					flags.FlagAttsetationType,
+					flags.FlagAttsetationMeasurement,
 				},
 				Action: func(cCtx *cli.Context) error {
 					c, err := NewClientConfig(cCtx)
@@ -92,15 +80,15 @@ type Client struct {
 }
 
 func NewClientConfig(cCtx *cli.Context) (*Client, error) {
-	appContract, err := interfaces.NewContractAddressFromHex(cCtx.String(flagAppAddr.Name))
+	appContract, err := interfaces.NewContractAddressFromHex(cCtx.String(flags.FlagAppAddr.Name))
 	if err != nil {
 		return nil, fmt.Errorf("could not parse app contract address: %w", err)
 	}
 
 	registrationProvider := &provisioner.ProvisioningClient{
 		ServerAddr:                cCtx.String(flagServerAddr.Name),
-		SetAttestationType:        cCtx.String(flagAttsetationType.Name),
-		SetAttestationMeasurement: cCtx.String(flagAttsetationType.Name),
+		SetAttestationType:        cCtx.String(flags.FlagAttsetationType.Name),
+		SetAttestationMeasurement: cCtx.String(flags.FlagAttsetationMeasurement.Name),
 	}
 
 	return &Client{

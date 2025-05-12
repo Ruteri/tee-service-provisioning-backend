@@ -22,6 +22,15 @@ type RegistrationProvider interface {
 	Register(app interfaces.ContractAddress, csr []byte) (*RegistrationResponse, error)
 }
 
+// SecretsResponse contains the signed app certificate and secrets decryption key
+type SecretsResponse struct {
+	// AppPrivkey is the private key for the application (for secrets decryption)
+	AppPrivkey interfaces.AppPrivkey `json:"app_privkey"`
+
+	// TLSCert is the signed TLS certificate for secure communication
+	TLSCert interfaces.TLSCert `json:"tls_cert"`
+}
+
 // RegistrationResponse contains the cryptographic materials and configuration
 // returned by the provisioning server after successful registration.
 type RegistrationResponse struct {
@@ -37,6 +46,18 @@ type RegistrationResponse struct {
 
 type MetadataProvider interface {
 	GetAppMetadata(contractAddr interfaces.ContractAddress) (*MetadataResponse, error)
+}
+
+// PKIResponse contains the certificate authority and application secrets encryption key
+type PKIResponse struct {
+	// CACert is the certificate authority that is expected for the application
+	CACert interfaces.CACert `json:"ca_cert"`
+
+	// AppPubkey is the applications public key used for encrypting secrets
+	AppPubkey interfaces.AppPubkey `json:"app_pubkey"`
+
+	// Attestation is the quote for AppAddress||sha256(CACert||AppPubkey) (52 bytes)
+	Attestation interfaces.Attestation `json:"attestaion"`
 }
 
 // MetadataResponse contains the certificate authority and application domain names

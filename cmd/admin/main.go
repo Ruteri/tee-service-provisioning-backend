@@ -46,16 +46,6 @@ var flagShamirShare *cli.StringFlag = &cli.StringFlag{
 	Usage: "Path to file to use for shamir share",
 }
 
-var flagShamirThreshold *cli.IntFlag = &cli.IntFlag{
-	Name:  "shamir-threshold",
-	Value: 2,
-}
-
-var flagShamirTotal *cli.IntFlag = &cli.IntFlag{
-	Name:  "shamir-total-shares",
-	Value: 2,
-}
-
 func main() {
 	app := &cli.App{
 		Name:           "admin client",
@@ -174,8 +164,6 @@ func main() {
 					flagProvisioningServer,
 					flagAdminPrivkey,
 					flagAdminPubkey,
-					flagShamirTotal,
-					flagShamirThreshold,
 				},
 				Action: func(cCtx *cli.Context) error {
 					baseURL := cCtx.String(flagProvisioningServer.Name)
@@ -198,11 +186,8 @@ func main() {
 						return err
 					}
 
-					sharesTotal := cCtx.Int(flagShamirTotal.Name)
-					sharesThreshold := cCtx.Int(flagShamirThreshold.Name)
-
 					adminClient := shamirkms.NewAdminClient(baseURL, adminID, privateKey)
-					_, err = adminClient.InitGenerate(sharesThreshold, sharesTotal)
+					_, err = adminClient.InitGenerate()
 					return err
 				},
 			},
@@ -214,7 +199,6 @@ func main() {
 					flagProvisioningServer,
 					flagAdminPrivkey,
 					flagAdminPubkey,
-					flagShamirThreshold,
 				},
 				Action: func(cCtx *cli.Context) error {
 					baseURL := cCtx.String(flagProvisioningServer.Name)
@@ -237,10 +221,8 @@ func main() {
 						return err
 					}
 
-					sharesThreshold := cCtx.Int(flagShamirThreshold.Name)
-
 					adminClient := shamirkms.NewAdminClient(baseURL, adminID, privateKey)
-					return adminClient.InitRecover(sharesThreshold)
+					return adminClient.InitRecover()
 				},
 			},
 			&cli.Command{

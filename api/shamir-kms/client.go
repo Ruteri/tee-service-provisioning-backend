@@ -90,14 +90,10 @@ func (c *AdminClient) GetStatus() (string, error) {
 
 // InitGenerate initiates the master key generation and share distribution.
 //
-// Parameters:
-//   - threshold: Minimum number of shares required to reconstruct the master key
-//   - totalShares: Total number of shares to generate
-//
 // Returns:
 //   - Map of share indexes to base64-encoded shares
 //   - Error if the request fails
-func (c *AdminClient) InitGenerate(threshold, totalShares int) (map[int]string, error) {
+func (c *AdminClient) InitGenerate() (map[int]string, error) {
 	url := fmt.Sprintf("%s/admin/init/generate", c.baseURL)
 	req, err := CreateSignedAdminRequest("POST", url, nil, c.adminID, c.privateKey)
 	if err != nil {
@@ -138,12 +134,9 @@ func (c *AdminClient) InitGenerate(threshold, totalShares int) (map[int]string, 
 
 // InitRecover initiates the recovery process.
 //
-// Parameters:
-//   - threshold: Minimum number of shares required to reconstruct the master key
-//
 // Returns:
 //   - Error if the request fails
-func (c *AdminClient) InitRecover(threshold int) error {
+func (c *AdminClient) InitRecover() error {
 	url := fmt.Sprintf("%s/admin/init/recover", c.baseURL)
 	req, err := CreateSignedAdminRequest("POST", url, nil, c.adminID, c.privateKey)
 	if err != nil {
