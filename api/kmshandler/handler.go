@@ -16,17 +16,20 @@ import (
 	simplekms "github.com/ruteri/tee-service-provisioning-backend/kms"
 )
 
-// Handler processes HTTP requests for the TEE Key Management Service.
-// It integrates with the on-chain governance contract to verify identity and authorization.
+// Handler processes HTTP requests for the onchain-governed TEE Key Management Service.
+// It integrates with blockchain-based governance contracts to verify identity,
+// authenticate operators, and provide cryptographic materials to authorized instances.
 //
 // The handler is responsible for critical security operations such as:
-// - Verifying TEE instance attestation evidence
-// - Validating operator signatures
-// - Providing private keys for secret decryption
-// - Signing CSRs for secure TLS communication
+// - Verifying TEE instance attestation evidence against onchain whitelists
+// - Validating operator signatures with onchain authorization checks
+// - Providing private keys for application-wide secret decryption
+// - Issuing signed TLS certificates for secure communication
+// - Supporting secure KMS onboarding through attestation verification
 //
-// All operations are performed only after verifying the instance's identity and authorization
-// through the on-chain registry.
+// All operations are performed only after verifying both the instance's identity and
+// operator authorization through the onchain governance contracts, implementing
+// a robust two-factor authorization model (attestation + operator signature).
 type Handler struct {
 	kms             interfaces.KMS
 	kmsAddress      interfaces.ContractAddress
@@ -51,6 +54,18 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Get("/api/attested/onboard/{onboard_id}", h.HandleOnboard)
 }
 
+// HandleOnboard processes KMS onboarding requests for new TEE instances.
+// It retrieves onchain onboarding requests, verifies attestation, and provides
+// encrypted KMS seed material for authorized instances.
+//
+// URL format: GET /api/attested/onboard/{onboard_id}
+// The onboard_id is a 32-byte hex-encoded hash that identifies the onboarding request
+// previously registered in the onchain governance contract.
+//
+// This allows secure distributed KMS deployment where new instances can receive
+// encrypted master key material through attestation verification and onchain governance.
+//
+// Response: Raw encrypted seed material for KMS initialization
 func (h *Handler) HandleOnboard(w http.ResponseWriter, r *http.Request) {
 	onboardHashBytes, err := hex.DecodeString(r.PathValue("onboard_id"))
 	if err != nil {
@@ -120,21 +135,25 @@ func (h *Handler) HandleOnboard(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// HandleSecrets processes TEE instance secrets requests.
-// It verifies the instance's identity against governance contract,
-// and provides cryptographic materials and configuration if authorized.
+// HandleSecrets processes TEE instance secrets requests with onchain authorization.
+// It verifies both the instance's identity and operator authorization against 
+// the governance contract, then provides cryptographic materials if authorized.
 //
 // URL format: POST /api/attested/secrets/{contract_address}
-// Required headers (cvm proxy):
-//   - X-Flashbots-Attestation-Type: Type of attestation
+// Required headers:
+//   - X-Flashbots-Attestation-Type: Type of attestation (azure-tdx, qemu-tdx)
 //   - X-Flashbots-Measurement: JSON-encoded measurement values
 //
 // Request body: TLS Certificate Signing Request (CSR) in PEM format
 // The CSR may optionally include an operator signature as an X.509 extension
 // with OID cryptoutils.OIDOperatorSignature. This signature provides additional
-// authorization from an approved operator.
+// authorization through onchain governance verification.
 //
-// Response: JSON, see api.SecretsResponse
+// Response: JSON-encoded AppSecrets containing:
+//   - Application private key for decrypting secrets
+//   - Signed TLS certificate for secure communication
+//   - Operator's Ethereum address (if provided)
+//   - Attestation evidence
 func (h *Handler) HandleSecrets(w http.ResponseWriter, r *http.Request) {
 	contractAddr, err := interfaces.NewContractAddressFromHex(r.PathValue("contract_address"))
 	if err != nil {
@@ -199,10 +218,13 @@ func (h *Handler) HandleSecrets(w http.ResponseWriter, r *http.Request) {
 // operator information from attestation evidence and CSR.
 //
 // It performs the following verification steps:
-// 1. Extracts attestation type and measurements from ATLS headers
-// 2. Computes the workload identity using the appropriate algorithm based on attestation type
+// 1. Extracts attestation type and measurements from headers
+// 2. Computes the workload identity through the onchain governance contract
 // 3. Parses the CSR to extract any operator signature extensions
-// 4. If an operator signature is present, verifies it and recovers the operator's Ethereum address
+// 4. If an operator signature is present, recovers the operator's Ethereum address
+//
+// This implements a critical security verification step ensuring that only
+// properly attested instances with authorized operators can receive cryptographic materials.
 func ParseWorkloadAndOperatorIdentity(r *http.Request, registry interfaces.OnchainRegistry, csr interfaces.TLSCSR) ([32]byte, [20]byte, error) {
 	// Extract attestation type and measurements from ATLS headers
 	attestationType, measurements, err := cryptoutils.MeasurementsFromATLS(r)

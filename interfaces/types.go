@@ -1,5 +1,3 @@
-// Package interfaces defines the core interfaces and types for the TEE registry system.
-// It provides the contract between different components without implementation details.
 package interfaces
 
 import (
@@ -163,13 +161,22 @@ func DCAPReportFromMeasurement(measurements map[int]string) (*DCAPReport, error)
 	return dcapReport, nil
 }
 
+// AppSecrets contains cryptographic materials for TEE instances.
 type AppSecrets struct {
-	AppPrivkey  AppPrivkey      `json:"app_privkey"`
-	TLSCert     TLSCert         `json:"tls_cert"`
-	Operator    ContractAddress `json:"operator"`
-	Attestation Attestation     `json:"attestation"`
+	// AppPrivkey for decrypting secrets
+	AppPrivkey AppPrivkey `json:"app_privkey"`
+
+	// TLSCert for secure communication
+	TLSCert TLSCert `json:"tls_cert"`
+
+	// Operator's Ethereum address
+	Operator ContractAddress `json:"operator"`
+
+	// Attestation of the instance
+	Attestation Attestation `json:"attestation"`
 }
 
+// ReportData generates expected attestation report data.
 func (s *AppSecrets) ReportData(appAddr ContractAddress) [64]byte {
 	var reportData [64]byte
 	secretsHash := sha256.Sum256(append(s.Operator[:], append(s.TLSCert, s.AppPrivkey...)...))

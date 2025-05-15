@@ -10,19 +10,22 @@ import (
 )
 
 // PKI retrieves attested PKI information for a specified contract address from a remote PKI service.
-// This function serves as a client for the PKI service, making HTTP requests to obtain
+// This function serves as a client for the onchain-governed PKI service, making HTTP requests to obtain
 // certificate authorities and public keys that can be used for secure communication with TEE instances.
+//
+// The PKI information is backed by blockchain-based governance that ensures only authorized
+// certificate authorities are used for TEE instance verification.
 //
 // Parameters:
 //   - url: Base URL of the PKI service (e.g., "https://registry.example.com")
-//   - contractAddr: Contract address identifying the application
+//   - contractAddr: Contract address identifying the application on the blockchain
 //
 // Returns:
-//   - PKIResponse containing the CA certificate, application public key, and attestation
+//   - AppPKI containing the CA certificate, application public key, and attestation
 //   - Error if the request fails or response parsing fails
 //
-// The returned attestation should be verified by the caller to ensure the authenticity
-// of the PKI information before using it for certificate validation.
+// The returned attestation should be verified against the onchain registry by the caller
+// to ensure the authenticity of the PKI information before using it for certificate validation.
 func PKI(url string, contractAddr interfaces.ContractAddress) (*interfaces.AppPKI, error) {
 	req, err := http.NewRequest(
 		http.MethodGet,

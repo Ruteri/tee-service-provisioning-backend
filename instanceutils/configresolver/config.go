@@ -11,13 +11,19 @@ import (
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
 
-// resolveConfiguration fetches the configuration template and resolves all references.
-// It creates a multi-storage backend from registered locations, retrieves the configuration
-// template, and processes it by resolving all references and decrypting any secret references.
+// ResolveConfiguration uses provided data availability backends to resolve the configuration
+// pointed to by the provisioning governance contract, and decrypts any secrets using the 
+// provided app private key.
+//
+// This implementation retrieves storage backend locations from the governance contract,
+// fetches the configuration template, and processes it by resolving all references and 
+// decrypting encrypted secrets.
 //
 // Parameters:
 //   - ctx: Context for storage operations
-//   - porvisioningGovernance: Interface for retrieving storage backend locations
+//   - log: Structured logger for operational insights
+//   - porvisioningGovernance: Contract providing storage backend locations
+//   - storageFactory: Factory for creating storage backends
 //   - configTemplateHash: Content hash of the configuration template to fetch
 //   - appPrivkey: Application private key for decrypting secret references
 //

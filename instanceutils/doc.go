@@ -1,114 +1,75 @@
-// Package instanceutils provides utilities for TEE (Trusted Execution Environment) instance
-// management, secure communication, and provisioning in a registry-based confidential
-// computing system.
+// Package instanceutils provides utilities for TEE (Trusted Execution Environment)
+// instance management, secure communication, and provisioning in a registry-based
+// confidential computing system.
 //
-// The package implements a set of interfaces and clients that enable TEE instances to
-// discover each other, establish secure connections, register with a provisioning system,
-// and manage their lifecycle across multiple applications.
+// The package implements a set of interfaces and clients that enable TEE
+// instances to discover each other, establish secure connections, register with a
+// provisioning system, and manage their lifecycle across multiple applications.
 //
-// # Core Interface
+// # Core Subpackages
 //
-// AppResolver: Provides cryptographic materials (certificates, keys) for secure inter-instance
+// - configresolver: Resolves configuration from content-addressed storage backends
+// - serviceresolver: Discovers peer instances using DNS and TLS-based authentication
+// - autoprovision: Manages TEE instance bootstrapping with disk encryption
 //
-//	communication, including cross-application connections.
+// # Configuration Resolution
 //
-// # Provisioning and Registration
+// The configresolver package provides functionality for retrieving and processing
+// configurations:
 //
-// The package provides client implementations for instance registration:
+// - Retrieves configuration hash from onchain governance contract
+// - Fetches configuration content from registered storage backends
+// - Resolves references to other configs and secrets
+// - Decrypts secrets using application's private key
 //
-//   - ProvisioningClient: Communicates with the provisioning server for instance registration
-//   - LocalKMSRegistrationProvider: Uses a local KMS for registration (useful for testing)
-//   - MockRegistrationProvider: A mock implementation for testing
+// # Service Discovery
 //
-// This includes functionality for creating Certificate Signing Requests (CSRs) and handling
-// registration responses containing cryptographic materials and configuration.
+// The serviceresolver package enables secure communication between instances:
 //
-// # Certificate Management
+// - Retrieves domain names from onchain discovery contract
+// - Resolves domains to IP addresses using standard DNS
+// - Fetches CA certificates for TLS validation
+// - Provides metadata for establishing secure connections
 //
-// Certificate management components enable secure mTLS connections between instances:
+// # Instance Provisioning
 //
-//   - AppCertificateManager: Manages application certificates for verified connections
-//   - CertificateManager: Interface defining certificate operations between TEE instances
+// The autoprovision tool automates the process of:
 //
-// # Tools
+// - Registering a new TEE instance with the registry system
+// - Setting up encrypted persistent storage using LUKS
+// - Securely storing TLS certificates, keys, and application configuration
+// - Supporting both initial provisioning and re-provisioning scenarios
 //
-// The package includes three command-line tools:
+// # Security Model
 //
-// ## 1. Operator Config API
+// The package implements a comprehensive security model:
 //
-// A lightweight HTTP server that accepts operator configuration before an instance
-// fully starts. It functions as a configuration injection point during instance
-// bootstrapping.
-//
-// Features:
-//   - Listens for HTTP POST requests to /config
-//   - Writes received configuration to a specified file
-//   - Optionally uses TLS with a self-signed certificate
-//   - Exits after successfully receiving configuration
-//
-// ## 2. Auto-provisioning Tool
-//
-// A provisioning utility that:
-//   - Registers with the TEE registry system
-//   - Sets up encrypted persistent storage
-//   - Stores cryptographic materials and configuration
-//   - Handles both new provisioning and re-provisioning scenarios
-//
-// Features:
-//   - LUKS encrypted disk management
-//   - Secure storage of TLS certificates and keys
-//   - Configuration persistence across restarts
-//   - Attestation-based identity verification
-//
-// ## 3. Proxy Router
-//
-// A secure proxy for TEE instance communication that:
-//   - Routes requests between instances of the same or different applications
-//   - Enforces mutual TLS authentication
-//   - Supports targeted and broadcast request patterns
-//   - Provides load balancing across multiple instances
-//
-// Features:
-//   - Secure ingress and egress communication paths
-//   - Certificate validation using application CAs
-//   - Support for different routing patterns (any/single, all/broadcast)
-//   - Response aggregation for broadcast requests
+// - Attestation-based identity verification
+// - TLS-based authentication with application-specific CAs
+// - Encrypted persistent storage with keys derived from application credentials
+// - Secure configuration with reference resolution and secret decryption
+// - Optional operator signature verification for additional authorization
 //
 // # Usage
 //
-// To use the package for instance communication:
+// To use the package for instance provisioning and communication:
 //
-//	// Create an app resolver
-//	resolver := instanceutils.NewRegistryAppResolver(
-//		registrationProvider,
-//		registryFactory,
-//		5*time.Minute,
+//	// Create a storage factory
+//	factory := storage.NewStorageBackendFactory(logger, registryFactory)
+//
+//	// Resolve configuration from governance contract
+//	config, err := configresolver.ResolveConfiguration(
+//		ctx,
 //		logger,
+//		provisioningContract,
+//		factory,
+//		configHash,
+//		appPrivkey,
 //	)
 //
-//	// Create certificate manager
-//	certManager, err := proxy.NewAppCertificateManager(
-//		resolver,
-//		myAppContractAddr,
-//		logger,
-//	)
+//	// Resolve service metadata for peer discovery
+//	metadata, err := serviceresolver.ResolveServiceMetadata(discoveryContract)
 //
-//	// Create and run router
-//	router, err := proxy.NewHTTPRouter(proxy.RouterConfig{
-//		DefaultAppContractAddress: myAppContractAddr,
-//		CertManager:               certManager,
-//		Resolver:                  resolver,
-//		IngressListenAddr:         ":8443",
-//		EgressListenAddr:          ":8080",
-//		Routes:                    routes,
-//		Log:                       logger,
-//	})
-//	router.RunInBackground()
-//
-// For example, to send a request to another application:
-//
-//	req, _ := http.NewRequest("GET", "http://localhost:8080/api/resource", nil)
-//	req.Header.Set("X-Target-App", targetAppContractAddress)
-//	req.Header.Set("X-Request-Type", "any")  // Single instance request
-//	resp, err := http.DefaultClient.Do(req)
+//	// Use metadata.PKI for TLS verification
+//	// Use metadata.IPs for connecting to instances
 package instanceutils

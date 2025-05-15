@@ -13,9 +13,14 @@ import (
 	simplekms "github.com/ruteri/tee-service-provisioning-backend/kms"
 )
 
-// SecretsProvider implements a client for retrieving cryptographic materials from the KMS.
-// It handles communication with the KMS server including the attestation headers required
-// for TEE identity verification.
+// SecretsProvider implements a client for retrieving cryptographic materials from the 
+// onchain-governed KMS. It handles secure communication with the KMS server including
+// the attestation headers required for TEE identity verification.
+//
+// The client supports:
+// - Retrieving application secrets (private keys and certificates)
+// - Onboarding new KMS instances through onchain governance
+// - Debug options for attestation headers in development environments
 type SecretsProvider struct {
 	Client *http.Client
 
@@ -34,7 +39,22 @@ var DefaultSecretsProvider = &SecretsProvider{
 	Client: http.DefaultClient,
 }
 
-// Note: the onboard request must already be on the chain!
+// OnboardKMS retrieves KMS seed material for a new KMS instance through onchain governance.
+// This method is used during KMS bootstrapping to securely distribute master key material
+// to authorized instances.
+//
+// Parameters:
+//   - url: The KMS server URL
+//   - onboardHash: The hash identifying the onchain onboarding request
+//   - kms: The local KMS instance that will receive the seed
+//   - privkey: The application private key for authentication
+//
+// The onboard request must be previously registered and approved on the blockchain
+// before calling this method.
+//
+// Returns:
+//   - Encrypted seed material that can be used to initialize the KMS
+//   - Error if onboarding fails
 func (p *SecretsProvider) OnboardKMS(url string, onboardHash [32]byte, kms *simplekms.SimpleKMS, privkey interfaces.AppPrivkey) ([]byte, error) {
 	var client *http.Client = p.Client
 	if client == nil {
@@ -61,7 +81,21 @@ func (p *SecretsProvider) OnboardKMS(url string, onboardHash [32]byte, kms *simp
 }
 
 // AppSecrets sends a request to the KMS server to obtain cryptographic materials for a TEE instance.
-// It submits the CSR and attestation evidence, and returns the application private key and signed certificate.
+// It submits the CSR and attestation evidence, and returns the application private key, 
+// signed certificate, and other identity materials.
+//
+// Parameters:
+//   - url: The KMS server URL
+//   - contractAddr: The contract address identifying the application
+//   - csr: Certificate Signing Request in PEM format
+//
+// The client automatically includes attestation evidence headers for production environments.
+// For development and testing, attestation headers can be manually set using the
+// DebugAttestationTypeHeader and DebugMeasurementsHeader fields.
+//
+// Returns:
+//   - AppSecrets containing private key, TLS certificate, operator address, and attestation evidence
+//   - Error if the request fails or authorization is denied
 func (p *SecretsProvider) AppSecrets(url string, contractAddr interfaces.ContractAddress, csr interfaces.TLSCSR) (*interfaces.AppSecrets, error) {
 	req, err := http.NewRequest(
 		http.MethodPost,

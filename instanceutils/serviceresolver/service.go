@@ -5,11 +5,28 @@ import (
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
 
+// ServiceMetadata contains the application's PKI and instance IP addresses.
+// This information enables secure connection establishment between TEE instances.
 type ServiceMetadata struct {
+	// PKI contains the application's CA certificate, public key, and attestation
 	PKI interfaces.AppPKI
+	
+	// IPs contains the IP addresses of all registered instances
 	IPs []string
 }
 
+// ResolveServiceMetadata retrieves application metadata from an onchain discovery contract.
+// It fetches the PKI information and resolves all registered domain names to IP addresses.
+//
+// The discovery contract is expected to implement the OnchainDiscovery interface,
+// providing both PKI information and instance domain names registered by operators.
+//
+// Parameters:
+//   - discoveryContract: Onchain contract that implements the OnchainDiscovery interface
+//
+// Returns:
+//   - ServiceMetadata containing PKI information and IP addresses
+//   - Error if PKI retrieval or domain resolution fails
 func ResolveServiceMetadata(discoveryContract interfaces.OnchainDiscovery) (*ServiceMetadata, error) {
 	appIps := []string{}
 	domainNames, err := discoveryContract.InstanceDomainNames()
@@ -37,6 +54,15 @@ func ResolveServiceMetadata(discoveryContract interfaces.OnchainDiscovery) (*Ser
 	}, nil
 }
 
+// resolveDomainIPs resolves a domain name to IP addresses using DNS SRV records.
+// It queries the local DNS resolver and extracts the target addresses from SRV records.
+//
+// Parameters:
+//   - domain: Domain name to resolve
+//
+// Returns:
+//   - Slice of IP addresses (target fields from SRV records)
+//   - Error if DNS resolution fails
 func resolveDomainIPs(domain string) ([]string, error) {
 	m1 := new(dns.Msg)
 	m1.Id = dns.Id()
