@@ -14,7 +14,6 @@ import (
 	"log"
 	"os"
 
-	"github.com/ruteri/tee-service-provisioning-backend/api"
 	shamirkms "github.com/ruteri/tee-service-provisioning-backend/api/shamir-kms"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/urfave/cli/v2"
@@ -306,7 +305,7 @@ func main() {
 						return err
 					}
 
-					var shareData api.AdminGetShareResponse
+					var shareData shamirkms.AdminGetShareResponse
 					err = json.Unmarshal(shareResponseJSON, &shareData)
 					if err != nil {
 						return err

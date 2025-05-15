@@ -7,12 +7,11 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/ruteri/tee-service-provisioning-backend/api"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
 
 // Handler processes HTTP requests for the TEE PKI service.
-// It provides access to certificate authorities and public keys for 
+// It provides access to certificate authorities and public keys for
 // applications identified by contract addresses. The Handler integrates
 // with a KMS to retrieve attested PKI information.
 type Handler struct {
@@ -47,13 +46,25 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Get("/api/public/pki/{contract_address}", h.HandlePki)
 }
 
+// PKIResponse contains the certificate authority and application secrets encryption key
+type PKIResponse struct {
+	// CACert is the certificate authority that is expected for the application
+	CACert interfaces.CACert `json:"ca_cert"`
+
+	// AppPubkey is the applications public key used for encrypting secrets
+	AppPubkey interfaces.AppPubkey `json:"app_pubkey"`
+
+	// Attestation is the quote for AppAddress||sha256(CACert||AppPubkey) (52 bytes)
+	Attestation interfaces.Attestation `json:"attestaion"`
+}
+
 // HandlePki processes requests for attested PKI information for a specified contract address.
 // It retrieves the CA certificate and application public key from the KMS, along with
 // attestation evidence that can be verified by clients to ensure authenticity.
 //
 // URL format: GET /api/public/pki/{contract_address}
 //
-// Response: JSON-encoded api.PKIResponse
+// Response: JSON-encoded PKIResponse
 //
 // Status codes:
 //   - 200 OK: PKI information successfully retrieved
@@ -76,7 +87,7 @@ func (h *Handler) HandlePki(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Prepare response
-	response := api.PKIResponse{
+	response := PKIResponse{
 		CACert:      pki.Ca,
 		AppPubkey:   pki.Pubkey,
 		Attestation: pki.Attestation,

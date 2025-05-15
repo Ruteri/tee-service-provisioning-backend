@@ -70,7 +70,7 @@ func (b *OnchainBackend) Store(ctx context.Context, data []byte, contentType int
 // Available checks if the blockchain backend is accessible.
 func (b *OnchainBackend) Available(ctx context.Context) bool {
 	// Try to call a simple function to check availability
-	backends, err := b.registry.AllStorageBackends()
+	backends, err := b.registry.StorageBackends()
 	if err != nil {
 		b.log.Debug("Blockchain backend unavailable", "err", err)
 		return false

@@ -1,18 +1,18 @@
-// Package pkihandler implements HTTP handlers and client functions for 
+// Package pkihandler implements HTTP handlers and client functions for
 // the TEE Registry's Public Key Infrastructure (PKI).
 //
-// This package provides the necessary functionality to retrieve and verify 
-// attestation-backed PKI information for TEE applications identified by their 
-// contract addresses. It implements both a server-side handler for responding 
+// This package provides the necessary functionality to retrieve and verify
+// attestation-backed PKI information for TEE applications identified by their
+// contract addresses. It implements both a server-side handler for responding
 // to PKI requests and a client-side function for retrieving PKI information.
 //
 // # Key Components
 //
-// - Handler: Processes HTTP requests for PKI information, retrieving attested
-//   certificate authorities and public keys from the KMS
+//   - Handler: Processes HTTP requests for PKI information, retrieving attested
+//     certificate authorities and public keys from the KMS
 //
-// - PKI Client: Makes HTTP requests to retrieve PKI information from a
-//   remote PKI service
+//   - PKI Client: Makes HTTP requests to retrieve PKI information from a
+//     remote PKI service
 //
 // # PKI Verification Flow
 //
@@ -30,11 +30,11 @@
 //
 //	// Create a PKI handler
 //	handler := pkihandler.NewHandler(kmsInstance, logger)
-//	
+//
 //	// Register routes with a Chi router
 //	router := chi.NewRouter()
 //	handler.RegisterRoutes(router)
-//	
+//
 //	// Start the HTTP server
 //	http.ListenAndServe(":8080", router)
 //
@@ -46,7 +46,7 @@
 //	if err != nil {
 //	    log.Fatalf("Failed to retrieve PKI: %v", err)
 //	}
-//	
+//
 //	// Use the PKI information for certificate validation
 //	caCert := pkiInfo.CACert
 //	// Configure TLS client with CA certificate...

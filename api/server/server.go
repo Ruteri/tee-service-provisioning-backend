@@ -13,9 +13,6 @@ import (
 	"github.com/flashbots/go-utils/httplogger"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/ruteri/tee-service-provisioning-backend/api"
-	"github.com/ruteri/tee-service-provisioning-backend/common"
-	"github.com/ruteri/tee-service-provisioning-backend/metrics"
 	"go.uber.org/atomic"
 )
 
@@ -26,16 +23,40 @@ type RouteRegistrar interface {
 	RegisterRoutes(r chi.Router)
 }
 
+// HTTPServerConfig contains all configuration parameters for the HTTP server.
+type HTTPServerConfig struct {
+	// ListenAddr is the address and port the HTTP server will listen on.
+	ListenAddr string
+
+	// Log is the structured logger for server operations.
+	Log *slog.Logger
+
+	// DrainDuration is the time to wait after marking server not ready
+	// before shutting down, allowing load balancers to detect the change.
+	DrainDuration time.Duration
+
+	// GracefulShutdownDuration is the maximum time to wait for in-flight
+	// requests to complete during shutdown.
+	GracefulShutdownDuration time.Duration
+
+	// ReadTimeout is the maximum duration for reading the entire request,
+	// including the body.
+	ReadTimeout time.Duration
+
+	// WriteTimeout is the maximum duration before timing out writes of
+	// the response.
+	WriteTimeout time.Duration
+}
+
 // BaseServer provides common HTTP server functionality for different components
 // of the TEE registry system.
 type BaseServer struct {
-	cfg     *api.HTTPServerConfig
+	cfg     *HTTPServerConfig
 	isReady atomic.Bool
 	mu      sync.RWMutex
 	log     *slog.Logger
 
-	srv        *http.Server
-	metricsSrv *metrics.MetricsServer
+	srv *http.Server
 }
 
 // New creates a new BaseServer with the specified configuration.
@@ -47,20 +68,14 @@ type BaseServer struct {
 // Returns:
 //   - Configured server instance
 //   - Error if server creation fails
-func New(cfg *api.HTTPServerConfig, routeRegistrars ...RouteRegistrar) (*BaseServer, error) {
-	metricsSrv, err := metrics.New(common.PackageName, cfg.MetricsAddr)
-	if err != nil {
-		return nil, err
-	}
-
+func New(cfg *HTTPServerConfig, routeRegistrars ...RouteRegistrar) (*BaseServer, error) {
 	srv := &BaseServer{
-		cfg:        cfg,
-		log:        cfg.Log,
-		metricsSrv: metricsSrv,
+		cfg: cfg,
+		log: cfg.Log,
 	}
 
 	// Create HTTP server with router
-	router := srv.createRouter(routeRegistrars)
+	router := srv.CreateRoutes(routeRegistrars)
 	srv.srv = &http.Server{
 		Addr:         cfg.ListenAddr,
 		Handler:      router,
@@ -74,8 +89,8 @@ func New(cfg *api.HTTPServerConfig, routeRegistrars ...RouteRegistrar) (*BaseSer
 	return srv, nil
 }
 
-// createRouter creates and configures the HTTP router with middleware and standard endpoints.
-func (srv *BaseServer) createRouter(routeRegistrars []RouteRegistrar) http.Handler {
+// CreateRoutes configures the HTTP router with middleware and standard endpoints.
+func (srv *BaseServer) CreateRoutes(routeRegistrars []RouteRegistrar) http.Handler {
 	mux := chi.NewRouter()
 
 	// Add standard middleware
@@ -93,12 +108,6 @@ func (srv *BaseServer) createRouter(routeRegistrars []RouteRegistrar) http.Handl
 	mux.With(srv.httpLogger).Get("/readyz", srv.handleReadinessCheck)
 	mux.With(srv.httpLogger).Get("/drain", srv.handleDrain)
 	mux.With(srv.httpLogger).Get("/undrain", srv.handleUndrain)
-
-	// Add pprof debugging if enabled
-	if srv.cfg.EnablePprof {
-		srv.log.Info("pprof API enabled")
-		mux.Mount("/debug", middleware.Profiler())
-	}
 
 	return mux
 }
@@ -167,19 +176,8 @@ func (srv *BaseServer) handleUndrain(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"status":"ready"}`))
 }
 
-// RunInBackground starts the HTTP and metrics servers in separate goroutines.
+// RunInBackground starts the HTTP in a goroutine.
 func (srv *BaseServer) RunInBackground() {
-	// Start metrics server if configured
-	if srv.cfg.MetricsAddr != "" {
-		go func() {
-			srv.log.With("metricsAddress", srv.cfg.MetricsAddr).Info("Starting metrics server")
-			err := srv.metricsSrv.ListenAndServe()
-			if err != nil && !errors.Is(err, http.ErrServerClosed) {
-				srv.log.Error("Metrics server failed", "err", err)
-			}
-		}()
-	}
-
 	// Start HTTP server
 	go func() {
 		srv.log.Info("Starting HTTP server", "listenAddress", srv.cfg.ListenAddr)
@@ -189,7 +187,7 @@ func (srv *BaseServer) RunInBackground() {
 	}()
 }
 
-// Shutdown gracefully stops the HTTP and metrics servers.
+// Shutdown gracefully stops the HTTP server
 func (srv *BaseServer) Shutdown() {
 	// Shutdown API server
 	ctx, cancel := context.WithTimeout(context.Background(), srv.cfg.GracefulShutdownDuration)
@@ -198,17 +196,5 @@ func (srv *BaseServer) Shutdown() {
 		srv.log.Error("Graceful HTTP server shutdown failed", "err", err)
 	} else {
 		srv.log.Info("HTTP server gracefully stopped")
-	}
-
-	// Shutdown metrics server if started
-	if len(srv.cfg.MetricsAddr) != 0 {
-		ctx, cancel := context.WithTimeout(context.Background(), srv.cfg.GracefulShutdownDuration)
-		defer cancel()
-
-		if err := srv.metricsSrv.Shutdown(ctx); err != nil {
-			srv.log.Error("Graceful metrics server shutdown failed", "err", err)
-		} else {
-			srv.log.Info("Metrics server gracefully stopped")
-		}
 	}
 }

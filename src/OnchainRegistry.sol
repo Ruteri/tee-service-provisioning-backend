@@ -32,9 +32,6 @@ struct AppPKI {
 }
 
 interface WorkloadGovernance {
-	// PKI for the application (CA, secrets encryption key)
-    function getPKI() external view returns (AppPKI memory);
-
 	// Whitelisted identities
 	function IdentityAllowed(bytes32 identity, address operator) external view returns (bool);
 
@@ -43,15 +40,20 @@ interface WorkloadGovernance {
     function MAAIdentity(MAAReport memory report) external view returns (bytes32);
 }
 
-interface PorvisioningGovernance {
-    // Configuration mapping for identity
-    function getConfigForIdentity(bytes32 identity, address operator) external view returns (bytes32);
+interface OnchainDiscovery {
+	// PKI for the application (CA, secrets encryption key)
+    function PKI() external view returns (AppPKI memory);
 
 	// Public instances — API and p2p bootstrap
-	function allInstanceDomainNames() external view returns (string[] memory);
+	function InstanceDomainNames() external view returns (string[] memory);
+}
+
+interface PorvisioningGovernance {
+    // Configuration mapping for identity
+    function ConfigForIdentity(bytes32 identity, address operator) external view returns (bytes32);
 
     // Storage backend management
-    function allStorageBackends() external view returns (string[] memory);
+    function StorageBackends() external view returns (string[] memory);
 }
 
 interface OnchainStore {
@@ -63,7 +65,7 @@ interface OnchainStore {
  * @dev A contract for managing trusted execution environment (TEE) identities and configurations
  * using Intel DCAP attestation.
  */
-contract Registry is AccessControl, Ownable, ReentrancyGuard, WorkloadGovernance, PorvisioningGovernance, OnchainStore {
+contract Registry is AccessControl, Ownable, ReentrancyGuard, WorkloadGovernance, OnchainDiscovery, PorvisioningGovernance, OnchainStore {
     // Define roles as bytes32 constants
     bytes32 public constant ROLE_OPERATOR = keccak256("ROLE_OPERATOR");
     bytes32 public constant ROLE_METADATA = keccak256("ROLE_METADATA");
@@ -73,11 +75,11 @@ contract Registry is AccessControl, Ownable, ReentrancyGuard, WorkloadGovernance
     uint256 public constant MAX_BYTES_SIZE = 20 * 1024; // 20KB limit
 
     // State variables
-    string[] public instanceDomainNames;
+    string[] public m_instanceDomainNames;
 	AppPKI public app_pki;
 
 	// Notes config and secrets locations
-	string[] public storageBackends;
+	string[] public m_storageBackends;
     // Maps config hash to config data and secrets for onchain DA
     mapping(bytes32 => bytes) public artifacts;
     // Maps identity to config hash
@@ -124,7 +126,7 @@ contract Registry is AccessControl, Ownable, ReentrancyGuard, WorkloadGovernance
         emit PKIUpdated(msg.sender, pki);
     }
 
-    function getPKI() external view returns (AppPKI memory) {
+    function PKI() external view returns (AppPKI memory) {
 		return app_pki;
 	}
 
@@ -183,7 +185,7 @@ contract Registry is AccessControl, Ownable, ReentrancyGuard, WorkloadGovernance
     }
 
     /**
-     * @dev Set configuration for a DCAP report
+     * @dev Set configuration for a MAA report
      * @param report The MAA report
      * @param configHash The configuration hash to associate
      */
@@ -213,7 +215,7 @@ contract Registry is AccessControl, Ownable, ReentrancyGuard, WorkloadGovernance
      * @param identity The TEE worklaod identity derived from instance measurements
      * @param operator The operator's address, extracted from signature in CSR extensions
      */
-    function getConfigForIdentity(bytes32 identity, address operator)
+    function ConfigForIdentity(bytes32 identity, address operator)
         external
         view
         returns (bytes32)
@@ -242,12 +244,12 @@ contract Registry is AccessControl, Ownable, ReentrancyGuard, WorkloadGovernance
         public 
         onlyRole(ROLE_OPERATOR) 
     {
-        instanceDomainNames.push(domain);
+        m_instanceDomainNames.push(domain);
         emit InstanceDomainRegistered(domain, msg.sender);
     }
 
-	function allInstanceDomainNames() public view returns (string[] memory) {
-		return instanceDomainNames;
+	function InstanceDomainNames() public view returns (string[] memory) {
+		return m_instanceDomainNames;
 	}
 
 	// Add a new content location or update an existing one
@@ -257,7 +259,7 @@ contract Registry is AccessControl, Ownable, ReentrancyGuard, WorkloadGovernance
 		public
 		onlyOwner
 	{
-		storageBackends.push(backendLocation);
+		m_storageBackends.push(backendLocation);
 		emit StorageBackendSet(backendLocation, msg.sender);
 	}
 
@@ -268,10 +270,10 @@ contract Registry is AccessControl, Ownable, ReentrancyGuard, WorkloadGovernance
 		public
 		onlyOwner
 	{
-        for (uint i = 0; i < storageBackends.length; i++) {
-            if (keccak256(abi.encodePacked(storageBackends[i])) == keccak256(abi.encodePacked(backendLocation))) {
-                storageBackends[i] = storageBackends[storageBackends.length - 1];
-                storageBackends.pop();
+        for (uint i = 0; i < m_storageBackends.length; i++) {
+            if (keccak256(abi.encodePacked(m_storageBackends[i])) == keccak256(abi.encodePacked(backendLocation))) {
+                m_storageBackends[i] = m_storageBackends[m_storageBackends.length - 1];
+                m_storageBackends.pop();
                 break;
             }
         }
@@ -280,14 +282,14 @@ contract Registry is AccessControl, Ownable, ReentrancyGuard, WorkloadGovernance
 
 	/**
 	 * @dev Get the number of storage backends
-	 * @return The length of the storageBackends array
+	 * @return The length of the m_storageBackends array
 	 */
-	function allStorageBackends()
+	function StorageBackends()
 		public
 		view
 		returns (string[] memory)
 	{
-		return storageBackends;
+		return m_storageBackends;
 	}
 
     /**

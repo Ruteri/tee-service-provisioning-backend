@@ -18,30 +18,39 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/go-chi/chi/v5"
-	"github.com/ruteri/tee-service-provisioning-backend/api"
-	"github.com/ruteri/tee-service-provisioning-backend/api/provisioner"
+	"github.com/ruteri/tee-service-provisioning-backend/api/kmshandler"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
-	"github.com/ruteri/tee-service-provisioning-backend/instanceutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
-	"github.com/ruteri/tee-service-provisioning-backend/kms"
+	"github.com/ruteri/tee-service-provisioning-backend/kmsgovernance"
+	"github.com/ruteri/tee-service-provisioning-backend/registry"
 	"github.com/urfave/cli/v2"
 )
 
+var flagAppContract = &cli.StringFlag{
+	Name:     "app-contract",
+	Required: true,
+	Usage:    "Application governance contract address to request provisioning for",
+	EnvVars:  []string{"APP_CONTRACT"},
+}
+var flagKmsContract = &cli.StringFlag{
+	Name:     "kms-contract",
+	Required: true,
+	Usage:    "KMS governance contract address to request provisioning for",
+	EnvVars:  []string{"KMS_CONTRACT"},
+}
+var flagRpcAddr = &cli.StringFlag{
+	Name:    "rpc-addr",
+	Value:   "http://127.0.0.1:8085",
+	Usage:   "RPC to connect to. Note that this should be a local node.",
+	EnvVars: []string{"RPC_ADDR"},
+}
+
 var provisionerFlags []cli.Flag = []cli.Flag{
-	&cli.StringFlag{
-		Name:    "provisioning-server-addr",
-		Value:   "http://127.0.0.1:8080",
-		Usage:   "Provisioning server address to request",
-		EnvVars: []string{"PROVISIONING_SERVER_ADDR"},
-	},
-	&cli.StringFlag{
-		Name:     "app-contract",
-		Required: true,
-		Usage:    "Application governance contract address to request provisioning for",
-		EnvVars:  []string{"APP_CONTRACT"},
-	},
+	flagAppContract, flagKmsContract, flagRpcAddr,
 }
 
 var operatorFlags []cli.Flag = []cli.Flag{
@@ -59,24 +68,14 @@ var operatorFlags []cli.Flag = []cli.Flag{
 }
 
 var debugFlags []cli.Flag = []cli.Flag{
-	&cli.BoolFlag{
-		Name:    "debug-local-provider",
-		Usage:   "If provided the provisioner will use a dummy provider instead of a remote one",
-		EnvVars: []string{"DEBUG_LOCAL_PROVIDER"},
-	},
-	&cli.BoolFlag{
-		Name:    "debug-local-kms-remote-attestaion-provider",
-		Usage:   "Address to use for remote attestations (dummy dcap) with local kms",
-		EnvVars: []string{"DEBUG_LOCAL_KMS_REMOTE_ATTESTATION_PROVIDER"},
-	},
 	&cli.StringFlag{
 		Name:    "debug-set-attestation-type-header",
-		Usage:   "If provided the provisioner will set the attestation type header",
+		Usage:   "If provided will set the attestation type header",
 		EnvVars: []string{"DEBUG_SET_ATTESTATION_TYPE_HEADER"},
 	},
 	&cli.StringFlag{
 		Name:    "debug-set-attestation-measurement-header",
-		Usage:   "If provided the provisioner will set the attestation measurement header",
+		Usage:   "If provided will set the attestation measurement header",
 		EnvVars: []string{"DEBUG_SET_ATTESTATION_MEASUREMENT_HEADER"},
 	},
 }
@@ -173,8 +172,9 @@ type Provisioner struct {
 
 	OperatorSignatureConfig OperatorSignatureConfig
 
-	RegistrationProvider api.RegistrationProvider
-	MetadataProvider     api.MetadataProvider
+	KmsGovernance    interfaces.KMSGovernance
+	SecretsProvider  *kmshandler.SecretsProvider
+	RegistryContract interfaces.OnchainRegistry
 }
 
 type OperatorSignatureConfig struct {
@@ -219,32 +219,34 @@ func NewProvisioner(cCtx *cli.Context) (*Provisioner, error) {
 		appKeyFile = mountPoint + "/autoprovisioning/app_privkey.pem"
 	}
 
-	appContract, err := interfaces.NewContractAddressFromHex(cCtx.String("app-contract"))
+	appContract, err := interfaces.NewContractAddressFromHex(cCtx.String(flagAppContract.Name))
 	if err != nil {
 		return nil, err
 	}
 
-	var registrationProvider api.RegistrationProvider
-	var metadataProvider api.MetadataProvider
-	if !cCtx.Bool("debug-local-provider") {
-		provisioningClient := &provisioner.ProvisioningClient{
-			ServerAddr:                cCtx.String("provisioning-server-addr"),
-			SetAttestationType:        cCtx.String("debug-set-attestation-type-header"),
-			SetAttestationMeasurement: cCtx.String("debug-set-attestation-measurement-header"),
-		}
-		registrationProvider = provisioningClient
-		metadataProvider = provisioningClient
-	} else {
-		localKMS, err := kms.NewSimpleKMS(make([]byte, 32))
-		if err != nil {
-			return nil, fmt.Errorf("could not create a local kms: %w", err)
-		}
-		if cCtx.String("debug-local-kms-remote-attestaion-provider") != "" {
-			localKMS = localKMS.WithAttestationProvider(&cryptoutils.RemoteAttestationProvider{Address: cCtx.String("debug-local-kms-remote-attestaion-provider")})
-		}
-		localProvider := &instanceutils.LocalKMSRegistrationProvider{KMS: localKMS}
-		registrationProvider = localProvider
-		metadataProvider = localProvider
+	rpcAddress := cCtx.String(flagRpcAddr.Name)
+	ethClient, err := ethclient.Dial(rpcAddress)
+	if err != nil {
+		return nil, fmt.Errorf("failed to dial RPC: %w", err)
+	}
+
+	registryContract, err := registry.NewOnchainRegistryClient(ethClient, ethClient, common.Address(appContract))
+	if err != nil {
+		return nil, fmt.Errorf("failed to instantiate registry client: %w", err)
+	}
+
+	secretsProvider := &*kmshandler.DefaultSecretsProvider
+	secretsProvider.DebugAttestationTypeHeader = cCtx.String("debug-set-attestation-type-header")
+	secretsProvider.DebugMeasurementsHeader = cCtx.String("debug-set-attestation-measurement-header")
+
+	kmsContractAddr, err := interfaces.NewContractAddressFromHex(cCtx.String(flagKmsContract.Name))
+	if err != nil {
+		return nil, err
+	}
+
+	kmsGovernance, err := kmsgovernance.NewKmsGovernanceClient(ethClient, ethClient, common.Address(kmsContractAddr))
+	if err != nil {
+		return nil, fmt.Errorf("failed to instantiate kms governance contract: %w", err)
 	}
 
 	return &Provisioner{
@@ -264,8 +266,9 @@ func NewProvisioner(cCtx *cli.Context) (*Provisioner, error) {
 			Enabled:    cCtx.Bool("await-operator-signature"),
 			ListenAddr: cCtx.String("operator-signature-listen-addr"),
 		},
-		RegistrationProvider: registrationProvider,
-		MetadataProvider:     metadataProvider,
+		KmsGovernance:    kmsGovernance,
+		SecretsProvider:  secretsProvider,
+		RegistryContract: registryContract,
 	}, nil
 }
 
@@ -319,16 +322,52 @@ func (p *Provisioner) Do() error {
 		}
 	}
 
-	tlskeyPem, csr, err := CreateCSR(tlskey, certificate_request)
+	kmsDomains, err := p.KmsGovernance.InstanceDomainNames()
+	if err != nil {
+		return fmt.Errorf("failed to resolve kms domains: %w", err)
+	}
 
-	parsedResponse, err := p.RegistrationProvider.Register(p.AppContract, csr)
+	if len(kmsDomains) == 0 {
+		return fmt.Errorf("no kms domains, cannot bootstrap")
+	}
+
+	// TODO: try all of them
+	kmsUrl := kmsDomains[0]
+
+	tlskeyPem, csr, err := CreateCSR(tlskey, certificate_request)
+	if err != nil {
+		return fmt.Errorf("failed to create CSR: %w", err)
+	}
+
+	parsedResponse, err := p.SecretsProvider.AppSecrets(kmsUrl, p.AppContract, csr)
 	if err != nil {
 		return fmt.Errorf("registration failed: %w", err)
+	}
+
+	secretsReportData := parsedResponse.ReportData(p.AppContract)
+	measurements, err := cryptoutils.VerifyDCAPAttestation(secretsReportData, parsedResponse.Attestation)
+	if err != nil {
+		return fmt.Errorf("invalid kms attestation: %w", err)
+	}
+
+	kmsIdentity, err := interfaces.AttestationToIdentity(cryptoutils.DCAPAttestation, measurements, p.RegistryContract)
+	if err != nil {
+		return fmt.Errorf("could not fetch kms identity: %w", err)
+	}
+
+	kmsAllowed, err := p.RegistryContract.IdentityAllowed(kmsIdentity, parsedResponse.Operator)
+	if err != nil {
+		return fmt.Errorf("could not verify kms identity: %w", err)
+	}
+	if !kmsAllowed {
+		return fmt.Errorf("kms identity not allowed")
 	}
 
 	if err = cryptoutils.VerifyCertificate(tlskeyPem, []byte(parsedResponse.TLSCert), CN.String()); err != nil {
 		return fmt.Errorf("invalid certificate in registration response: %w", err)
 	}
+
+	// TODO: check app privkey against onchain pki
 
 	// TODO: we should use MRCONFIGOWNER or equivalent for disk label
 	// however, the actual guarantee with a random label is roughly
@@ -379,10 +418,12 @@ func (p *Provisioner) Do() error {
 		}
 	}
 
-	pki, err := p.MetadataProvider.GetAppMetadata(p.AppContract)
+	pki, err := p.RegistryContract.PKI()
 	if err != nil {
 		return fmt.Errorf("could not get app metadata: %w", err)
 	}
+
+	// TODO: verify pki attestation as well
 
 	// Create directory structure with proper permissions
 	provisioningDir := filepath.Dir(p.ConfigFilePath)
@@ -396,11 +437,11 @@ func (p *Provisioner) Do() error {
 		content []byte
 		mode    os.FileMode
 	}{
-		{p.ConfigFilePath, []byte(parsedResponse.Config), 0600},
+		// {p.ConfigFilePath, []byte(""), 0600}, // TODO: resolve config as needed
 		{p.TLSCertPath, []byte(parsedResponse.TLSCert), 0600},
 		{p.AppPrivkeyPath, []byte(parsedResponse.AppPrivkey), 0600},
 		{p.TLSKeyPath, tlskeyPem, 0600},
-		{p.TLSCACertPath, pki.CACert, 0666},
+		{p.TLSCACertPath, pki.Ca, 0666},
 	}
 
 	for _, fw := range fileWrites {
@@ -462,7 +503,7 @@ func (c *OperatorSignatureConfig) AwaitCRSignature(privateKey *ecdsa.PrivateKey,
 	// Recreate and resign the CSR
 	crCopy := *cr
 	crCopy.ExtraExtensions = []pkix.Extension{{
-		Id:    api.OIDOperatorSignature,
+		Id:    cryptoutils.OIDOperatorSignature,
 		Value: sig,
 	}}
 	return &crCopy, nil

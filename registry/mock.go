@@ -11,20 +11,20 @@ type MockRegistry struct {
 	mock.Mock
 }
 
-// GetPKI mocks the GetPKI method
-func (m *MockRegistry) GetPKI() (*interfaces.AppPKI, error) {
+// PKI mocks the PKI method
+func (m *MockRegistry) PKI() (interfaces.AppPKI, error) {
 	args := m.Called()
-	return args.Get(0).(*interfaces.AppPKI), args.Error(1)
+	return args.Get(0).(interfaces.AppPKI), args.Error(1)
 }
 
-// ComputeDCAPIdentity mocks the ComputeDCAPIdentity method
-func (m *MockRegistry) ComputeDCAPIdentity(report *interfaces.DCAPReport) ([32]byte, error) {
+// DCAPIdentity mocks the DCAPIdentity method
+func (m *MockRegistry) DCAPIdentity(report interfaces.DCAPReport, events []interfaces.DCAPEvent) ([32]byte, error) {
 	args := m.Called(report)
 	return args.Get(0).([32]byte), args.Error(1)
 }
 
-// ComputeMAAIdentity mocks the ComputeMAAIdentity method
-func (m *MockRegistry) ComputeMAAIdentity(report *interfaces.MAAReport) ([32]byte, error) {
+// MAAIdentity mocks the MAAIdentity method
+func (m *MockRegistry) MAAIdentity(report interfaces.MAAReport) ([32]byte, error) {
 	args := m.Called(report)
 	return args.Get(0).([32]byte), args.Error(1)
 }
@@ -41,8 +41,8 @@ func (m *MockRegistry) IdentityAllowed(identity [32]byte, operator [20]byte) (bo
 	return args.Get(0).(bool), args.Error(1)
 }
 
-// IdentityConfigMap mocks the IdentityConfigMap method
-func (m *MockRegistry) IdentityConfigMap(identity [32]byte, operator [20]byte) ([32]byte, error) {
+// ConfigForIdentity mocks the IdentityConfigMap method
+func (m *MockRegistry) ConfigForIdentity(identity [32]byte, operator [20]byte) ([32]byte, error) {
 	args := m.Called(identity, operator)
 	return args.Get(0).([32]byte), args.Error(1)
 }
@@ -59,8 +59,8 @@ func (m *MockRegistry) SetConfigForIdentity(identity [32]byte, configHash [32]by
 	return args.Get(0).(*types.Transaction), args.Error(1)
 }
 
-// AllStorageBackends mocks the AllStorageBackends method
-func (m *MockRegistry) AllStorageBackends() ([]string, error) {
+// StorageBackends mocks the AllStorageBackends method
+func (m *MockRegistry) StorageBackends() ([]string, error) {
 	args := m.Called()
 	return args.Get(0).([]string), args.Error(1)
 }
@@ -77,8 +77,8 @@ func (m *MockRegistry) RemoveStorageBackend(locationURI string) (*types.Transact
 	return args.Get(0).(*types.Transaction), args.Error(1)
 }
 
-// AllInstanceDomainNames mocks the AllInstanceDomainNames method
-func (m *MockRegistry) AllInstanceDomainNames() ([]string, error) {
+// InstanceDomainNames mocks the AllInstanceDomainNames method
+func (m *MockRegistry) InstanceDomainNames() ([]string, error) {
 	args := m.Called()
 	return args.Get(0).([]string), args.Error(1)
 }

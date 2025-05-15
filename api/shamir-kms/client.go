@@ -14,7 +14,6 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/ruteri/tee-service-provisioning-backend/api"
 	"github.com/ruteri/tee-service-provisioning-backend/kms"
 )
 
@@ -220,29 +219,29 @@ func (c *AdminClient) SubmitShare(shareIndex int, shareBase64 string, signature 
 //   - share index
 //   - encrypted share
 //   - Error if the request fails
-func (c *AdminClient) FetchShare() (api.AdminGetShareResponse, error) {
+func (c *AdminClient) FetchShare() (AdminGetShareResponse, error) {
 	url := fmt.Sprintf("%s/admin/share", c.baseURL)
 
 	req, err := CreateSignedAdminRequest("GET", url, nil, c.adminID, c.privateKey)
 	if err != nil {
-		return api.AdminGetShareResponse{}, err
+		return AdminGetShareResponse{}, err
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return api.AdminGetShareResponse{}, fmt.Errorf("submit share request failed: %w", err)
+		return AdminGetShareResponse{}, fmt.Errorf("submit share request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return api.AdminGetShareResponse{}, fmt.Errorf("submit share failed with code %d: %s", resp.StatusCode, string(body))
+		return AdminGetShareResponse{}, fmt.Errorf("submit share failed with code %d: %s", resp.StatusCode, string(body))
 	}
 
-	var parsedResp api.AdminGetShareResponse
+	var parsedResp AdminGetShareResponse
 	err = json.NewDecoder(resp.Body).Decode(&parsedResp)
 	if err != nil {
-		return api.AdminGetShareResponse{}, err
+		return AdminGetShareResponse{}, err
 	}
 
 	return parsedResp, err

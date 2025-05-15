@@ -19,7 +19,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/go-chi/chi/v5"
-	"github.com/ruteri/tee-service-provisioning-backend/api"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 	"github.com/ruteri/tee-service-provisioning-backend/kms"
@@ -70,11 +69,11 @@ func TestHandleSecrets_Success(t *testing.T) {
 
 	// Setup mock expectations for registry
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
-	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
+	mockRegistry.On("DCAPIdentity", mock.Anything).Return(identity, nil)
 	mockRegistry.On("IdentityAllowed", identity, mock.Anything).Return(true, nil)
 
 	// Create handler
-	handler := NewHandler(kmsInstance, mockRegistryFactory, logger)
+	handler := NewHandler(kmsInstance, contractAddr, nil, mockRegistryFactory, logger)
 
 	// Create test CSR
 	_, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(contractAddr).String())
@@ -103,7 +102,7 @@ func TestHandleSecrets_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var result api.SecretsResponse
+	var result interfaces.AppSecrets
 	respBody, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	err = json.Unmarshal(respBody, &result)
@@ -132,11 +131,11 @@ func TestHandleSecrets_IdentityNotWhitelisted(t *testing.T) {
 
 	// Setup mock expectations for failure case
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
-	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
+	mockRegistry.On("DCAPIdentity", mock.Anything).Return(identity, nil)
 	mockRegistry.On("IdentityAllowed", identity, mock.Anything).Return(false, nil)
 
 	// Create handler
-	handler := NewHandler(kmsInstance, mockRegistryFactory, logger)
+	handler := NewHandler(kmsInstance, contractAddr, nil, mockRegistryFactory, logger)
 
 	// Create test CSR
 	_, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(contractAddr).String())
@@ -189,10 +188,10 @@ func TestHandleSecrets_WithOperatorSignature(t *testing.T) {
 
 	// Setup mock expectations for registry - note the operatorAddress parameter
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
-	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
+	mockRegistry.On("DCAPIdentity", mock.Anything).Return(identity, nil)
 
 	// Create handler
-	handler := NewHandler(kmsInstance, mockRegistryFactory, logger)
+	handler := NewHandler(kmsInstance, contractAddr, nil, mockRegistryFactory, logger)
 
 	// Create a private key for the instance
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -234,7 +233,7 @@ func TestHandleSecrets_WithOperatorSignature(t *testing.T) {
 	templateWithSig := template
 	templateWithSig.ExtraExtensions = []pkix.Extension{
 		{
-			Id:    api.OIDOperatorSignature,
+			Id:    cryptoutils.OIDOperatorSignature,
 			Value: operatorSignature,
 		},
 	}
@@ -272,7 +271,7 @@ func TestHandleSecrets_WithOperatorSignature(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var result api.SecretsResponse
+	var result interfaces.AppSecrets
 	respBody, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	err = json.Unmarshal(respBody, &result)
@@ -302,10 +301,10 @@ func TestHandleSecrets_UnauthorizedOperator(t *testing.T) {
 
 	// Setup mock expectations - operator is not authorized for this identity
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
-	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
+	mockRegistry.On("DCAPIdentity", mock.Anything).Return(identity, nil)
 
 	// Create handler
-	handler := NewHandler(kmsInstance, mockRegistryFactory, logger)
+	handler := NewHandler(kmsInstance, contractAddr, nil, mockRegistryFactory, logger)
 
 	// Create a private key for the instance
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -345,7 +344,7 @@ func TestHandleSecrets_UnauthorizedOperator(t *testing.T) {
 	templateWithSig := template
 	templateWithSig.ExtraExtensions = []pkix.Extension{
 		{
-			Id:    api.OIDOperatorSignature,
+			Id:    cryptoutils.OIDOperatorSignature,
 			Value: operatorSignature,
 		},
 	}
@@ -400,12 +399,12 @@ func TestHandleSecrets_InvalidInput(t *testing.T) {
 	// Set up mock registry factory
 	mockRegistryFactory := new(registry.MockRegistryFactory)
 	mockRegistry := new(registry.MockRegistry)
-	mockRegistry.On("ComputeDCAPIdentity", mock.Anything).Return(identity, nil)
+	mockRegistry.On("DCAPIdentity", mock.Anything).Return(identity, nil)
 	mockRegistry.On("IdentityAllowed", identity, mock.Anything).Return(true, nil)
 	mockRegistryFactory.On("RegistryFor", mock.Anything).Return(mockRegistry, nil)
 
 	// Create handler
-	handler := NewHandler(kmsInstance, mockRegistryFactory, logger)
+	handler := NewHandler(kmsInstance, interfaces.ContractAddress{}, nil, mockRegistryFactory, logger)
 
 	testCases := []struct {
 		name         string

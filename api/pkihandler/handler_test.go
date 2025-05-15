@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/ruteri/tee-service-provisioning-backend/api"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 	"github.com/ruteri/tee-service-provisioning-backend/kms"
 	"github.com/stretchr/testify/assert"
@@ -58,7 +57,7 @@ func TestHandlePki_WithRealKMS(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var result api.PKIResponse
+	var result PKIResponse
 	respBody, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	err = json.Unmarshal(respBody, &result)

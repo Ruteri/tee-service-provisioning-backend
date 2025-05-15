@@ -6,12 +6,14 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ruteri/tee-service-provisioning-backend/api/kmshandler"
 	"github.com/ruteri/tee-service-provisioning-backend/api/pkihandler"
 	"github.com/ruteri/tee-service-provisioning-backend/api/server"
 	"github.com/ruteri/tee-service-provisioning-backend/cmd/flags"
-	"github.com/ruteri/tee-service-provisioning-backend/cmd/kmscommon"
+	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
+	"github.com/ruteri/tee-service-provisioning-backend/kmsgovernance"
 	"github.com/ruteri/tee-service-provisioning-backend/registry"
 	"github.com/urfave/cli/v2"
 )
@@ -28,17 +30,22 @@ var KmsAttestedListenAddrFlag = &cli.StringFlag{
 	Value: "127.0.0.1:8082",
 	Usage: "address to listen on for API",
 }
+var KmsGovernanceAddrFlag = &cli.StringFlag{
+	Name:  "kms-contract",
+	Usage: "KMS governace contract address",
+}
 
 func main() {
 	app := &cli.App{
 		Name:  "kms-server",
 		Usage: "Serve TEE KMS",
-		Flags: append(append(kmscommon.KmsFlags, []cli.Flag{KmsPKIListenAddrFlag, KmsAttestedListenAddrFlag, flags.RpcAddrFlag, KmsServiceLogFlag}...), flags.CommonFlags...),
+		Flags: append(append(KmsFlags, []cli.Flag{KmsPKIListenAddrFlag, KmsAttestedListenAddrFlag, KmsGovernanceAddrFlag, flags.RpcAddrFlag, KmsServiceLogFlag}...), flags.CommonFlags...),
 		Action: func(cCtx *cli.Context) error {
 			// Parse basic configuration
 			pkiListenAddr := cCtx.String(KmsPKIListenAddrFlag.Name)
 			attestedListenAddr := cCtx.String(KmsAttestedListenAddrFlag.Name)
 			rpcAddress := cCtx.String(flags.RpcAddrFlag.Name)
+			kmsGovernanceContractAdress, _ := interfaces.NewContractAddressFromHex(cCtx.String(KmsGovernanceAddrFlag.Name))
 
 			// Setup logger
 			logger := flags.SetupLogger(cCtx)
@@ -51,11 +58,17 @@ func main() {
 				return err
 			}
 
+			kmsGovernance, err := kmsgovernance.NewKmsGovernanceClient(ethClient, ethClient, common.Address(kmsGovernanceContractAdress))
+			if err != nil {
+				logger.Error("Failed to instantiate kms", "err", err)
+				return err
+			}
+
 			// Create registry factory
 			registryFactory := registry.NewRegistryFactory(ethClient, ethClient)
 
 			// Handle KMS initialization based on type
-			kmsImpl, err := kmscommon.SetupKMS(cCtx, logger)
+			kmsImpl, err := SetupKMS(cCtx, logger, kmsGovernanceContractAdress, kmsGovernance)
 			if err != nil {
 				logger.Error("Failed to initialize KMS", "err", err)
 				return err
@@ -69,7 +82,7 @@ func main() {
 				return err
 			}
 
-			kmsServer, err := server.New(flags.ConfigureServer(cCtx, logger, attestedListenAddr), kmshandler.NewHandler(kmsImpl, registryFactory, logger))
+			kmsServer, err := server.New(flags.ConfigureServer(cCtx, logger, attestedListenAddr), kmshandler.NewHandler(kmsImpl, kmsGovernanceContractAdress, kmsGovernance, registryFactory, logger))
 			if err != nil {
 				logger.Error("Failed to create server", "err", err)
 				return err

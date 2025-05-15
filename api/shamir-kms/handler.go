@@ -20,7 +20,6 @@ import (
 	"sync"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/ruteri/tee-service-provisioning-backend/api"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/ruteri/tee-service-provisioning-backend/kms"
 )
@@ -309,6 +308,11 @@ func (h *AdminHandler) handleInitGenerate(w http.ResponseWriter, r *http.Request
 		"threshold", h.shamirConfig.Threshold, "totalShares", len(h.shamirConfig.AdminPubKeys))
 }
 
+type AdminGetShareResponse struct {
+	ShareIndex     int    `json:"share_index"`
+	EncryptedShare string `json:"encrypted_share"` // base64 encoded
+}
+
 // handleGetShare allows an admin to retrieve their share.
 //
 // This endpoint:
@@ -365,7 +369,7 @@ func (h *AdminHandler) handleGetShare(w http.ResponseWriter, r *http.Request) {
 
 	// Return the encrypted share to the admin
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(api.AdminGetShareResponse{
+	json.NewEncoder(w).Encode(AdminGetShareResponse{
 		ShareIndex:     secureShare.ShareIndex,
 		EncryptedShare: base64.StdEncoding.EncodeToString(secureShare.EncryptedShare),
 	})
