@@ -1,5 +1,3 @@
-// Package interfaces defines the core interfaces and types for the TEE registry system.
-// It provides the contract between different components without implementation details.
 package interfaces
 
 import (
@@ -14,8 +12,7 @@ import (
 	"strings"
 )
 
-// ContentID represents a unique identifier for any content in the system.
-// It is a 32-byte hash of the content (SHA-256).
+// ContentID is a 32-byte SHA-256 hash uniquely identifying content.
 type ContentID [32]byte
 
 // NewContentID creates a content ID from a byte array or by computing the hash of data.
@@ -47,40 +44,38 @@ func NewContentIDFromHex(source string) (ContentID, error) {
 	return ContentID(hash), nil
 }
 
-// ComputeID calculates the content ID for the given data.
+// ComputeID calculates content ID from data.
 func ComputeID(data []byte) ContentID {
 	hash := sha256.Sum256(data)
 	return ContentID(hash)
 }
 
-// String returns the hex string representation of the content ID.
+// String returns hex representation.
 func (id ContentID) String() string {
 	return hex.EncodeToString(id[:])
 }
 
-// Bytes returns the raw 32-byte hash.
+// Bytes returns raw 32-byte hash.
 func (id ContentID) Bytes() []byte {
 	return id[:]
 }
 
-// Equal compares two content IDs for equality.
+// Equal compares two content IDs.
 func (id ContentID) Equal(other ContentID) bool {
 	return bytes.Equal(id[:], other[:])
 }
 
-// ContentType indicates what kind of content is being stored or retrieved.
-// This allows different content types to be stored in separate namespaces.
+// ContentType indicates storage namespace.
 type ContentType int
 
 const (
-	// ConfigType represents configuration data stored in the system.
+	// ConfigType for configuration data
 	ConfigType ContentType = iota
-
-	// SecretType represents encrypted secret data stored in the system.
+	// SecretType for encrypted secrets
 	SecretType
 )
 
-// String returns a string representation of the content type.
+// String returns type name.
 func (ct ContentType) String() string {
 	switch ct {
 	case ConfigType:
@@ -92,17 +87,14 @@ func (ct ContentType) String() string {
 	}
 }
 
-// StorageBackendLocation represents a URI location for a content storage backend.
+// StorageBackendLocation represents URI for storage backend.
 type StorageBackendLocation struct {
-	// Raw is the original URI string
-	Raw string
-
-	// Parsed components
-	Scheme string
-	Host   string
-	Path   string
-	Query  url.Values
-	Auth   string
+	Raw    string    // Original URI
+	Scheme string    // Protocol
+	Host   string    // Hostname
+	Path   string    // Resource path
+	Query  url.Values // Query parameters
+	Auth   string    // Authentication info
 }
 
 // NewStorageBackendLocation creates a new storage location from a URI string with validation.
@@ -196,43 +188,33 @@ var (
 	ErrInvalidLocationURI = errors.New("invalid storage location URI")
 )
 
-// StorageBackend represents any system that can store and retrieve content-addressed data.
-// Implementations include file systems, S3-compatible services, and IPFS nodes.
+// StorageBackend provides content-addressed data storage.
 type StorageBackend interface {
-	// Fetch retrieves data by its content identifier and type.
-	// Returns the data or an error if the content cannot be found or the backend is unavailable.
+	// Fetch retrieves data by content ID and type.
 	Fetch(ctx context.Context, id ContentID, contentType ContentType) ([]byte, error)
 
-	// Store saves data of the specified type and returns its content identifier.
-	// The content identifier is the SHA-256 hash of the data.
+	// Store saves data and returns its content ID.
 	Store(ctx context.Context, data []byte, contentType ContentType) (ContentID, error)
 
-	// Available checks if this backend is currently accessible.
-	// Returns true if the backend can be used for storage operations.
+	// Available checks if backend is accessible.
 	Available(ctx context.Context) bool
 
-	// Name returns a unique identifier for this storage backend.
-	// Used for logging, monitoring, and debugging purposes.
+	// Name returns identifier for logging.
 	Name() string
 
-	// LocationURI returns the URI that uniquely identifies this storage backend.
-	// The URI follows the format: [scheme]://[auth@]host[:port][/path][?params]
+	// LocationURI returns URI identifying this backend.
 	LocationURI() string
 }
 
-// StorageBackendFactory creates storage backends from URI strings.
-// It handles the creation logic for different backend types based on the URI scheme.
+// StorageBackendFactory creates storage backends.
 type StorageBackendFactory interface {
-	// StorageBackendFor creates a storage backend from a location URI.
-	// Supported schemes include: file://, s3://, ipfs://, onchain://, github://, vault://
-	// Returns an error if the URI is invalid or the backend type is unsupported.
+	// StorageBackendFor creates backend from URI.
+	// Supports file://, s3://, ipfs://, onchain://, github://, vault://
 	StorageBackendFor(locationURI StorageBackendLocation) (StorageBackend, error)
 
-	// CreateMultiBackend creates a storage backend that aggregates multiple backends.
-	// The multi-backend provides redundancy by trying operations across all backends.
-	// Returns an error if no valid backends could be created from the URIs.
+	// CreateMultiBackend creates aggregated storage backend.
 	CreateMultiBackend(locationURIs []StorageBackendLocation) (StorageBackend, error)
 
-	// WithTLSAuth configures factory to use TLS certificate for authorization in TLS-enabled backends
+	// WithTLSAuth configures TLS client authentication.
 	WithTLSAuth(func() (tls.Certificate, error)) StorageBackendFactory
 }

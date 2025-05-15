@@ -55,15 +55,6 @@ func (k *ShamirKMS) SimpleKMS() *SimpleKMS {
 // This function splits the master key into shares using Shamir's Secret Sharing.
 // The shares must be securely distributed to administrators and the original master key
 // should be securely erased after this function returns.
-//
-// Parameters:
-//   - masterKey: The sensitive seed material to protect (at least 32 bytes)
-//   - config: Configuration containing threshold and admin public keys
-//
-// Returns:
-//   - The ShamirKMS instance in locked state
-//   - The generated shares to distribute to administrators
-//   - Error if the operation fails
 func NewShamirKMS(masterKey []byte, config ShamirConfig) (*ShamirKMS, [][]byte, error) {
 	if len(masterKey) < 32 {
 		return nil, nil, errors.New("master key must be at least 32 bytes")
@@ -106,13 +97,6 @@ func NewShamirKMS(masterKey []byte, config ShamirConfig) (*ShamirKMS, [][]byte, 
 // This function should be used when starting the KMS without a master key.
 // The KMS will remain in a locked state until enough valid shares are submitted
 // to reconstruct the master key.
-//
-// Parameter:
-//   - config: Configuration containing threshold and admin public keys
-//
-// Returns:
-//   - The ShamirKMS instance in locked state, ready to accept shares
-//   - Error if admin public key validation fails
 func NewShamirKMSRecovery(config ShamirConfig) (*ShamirKMS, error) {
 	kms := &ShamirKMS{
 		masterKey:           nil,
@@ -212,10 +196,6 @@ func (k *ShamirKMS) SubmitShare(shareIndex int, share, signature, adminPubKeyPEM
 // If enough shares (meeting or exceeding the threshold) have been received,
 // Shamir's algorithm is used to combine them and recover the original master key.
 // After successful reconstruction, all shares are securely wiped from memory.
-//
-// Returns:
-//   - Error if reconstruction fails
-//   - nil if successful or if not enough shares have been received yet
 func (k *ShamirKMS) tryReconstruct() error {
 	if len(k.receivedShares) < k.threshold {
 		return nil // Not enough shares yet, but this is not an error
@@ -249,10 +229,6 @@ func (k *ShamirKMS) tryReconstruct() error {
 // IsUnlocked returns whether the KMS has been successfully unlocked.
 // The KMS is considered unlocked when enough valid shares have been submitted
 // and the master key has been successfully reconstructed.
-//
-// Returns:
-//   - true if the KMS is unlocked and operational
-//   - false if the KMS is still locked and waiting for more shares
 func (k *ShamirKMS) IsUnlocked() bool {
 	k.mu.RLock()
 	defer k.mu.RUnlock()

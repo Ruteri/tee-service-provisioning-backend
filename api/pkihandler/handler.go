@@ -13,7 +13,7 @@ import (
 // Handler processes HTTP requests for the TEE PKI service.
 // It provides access to certificate authorities and public keys for
 // applications identified by contract addresses. The Handler integrates
-// with a KMS to retrieve attested PKI information.
+// with an onchain-governed KMS to retrieve attested PKI information.
 type Handler struct {
 	kms interfaces.KMS
 	log *slog.Logger
@@ -21,8 +21,8 @@ type Handler struct {
 
 // NewHandler creates a new HTTP request handler for the PKI service.
 //
-// It requires a KMS implementation to retrieve PKI information and
-// a structured logger for operational insights.
+// It requires a KMS implementation that interfaces with onchain governance
+// to retrieve PKI information and a structured logger for operational insights.
 //
 // Parameters:
 //   - kms: Key Management Service for cryptographic operations and certificate retrieval
@@ -55,12 +55,13 @@ type PKIResponse struct {
 	AppPubkey interfaces.AppPubkey `json:"app_pubkey"`
 
 	// Attestation is the quote for AppAddress||sha256(CACert||AppPubkey) (52 bytes)
-	Attestation interfaces.Attestation `json:"attestaion"`
+	Attestation interfaces.Attestation `json:"attestation"`
 }
 
 // HandlePki processes requests for attested PKI information for a specified contract address.
-// It retrieves the CA certificate and application public key from the KMS, along with
-// attestation evidence that can be verified by clients to ensure authenticity.
+// It retrieves the CA certificate and application public key from the onchain-governed KMS,
+// along with attestation evidence that can be verified against the blockchain registry to 
+// ensure authenticity.
 //
 // URL format: GET /api/public/pki/{contract_address}
 //

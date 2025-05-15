@@ -1,5 +1,5 @@
-// Package cryptoutils provides cryptographic operations for secure secret management
-// in the TEE registry system.
+// Package cryptoutils provides cryptographic operations for secure secret
+// management in the TEE registry system.
 //
 // This package implements asymmetric encryption and decryption operations using
 // elliptic curve cryptography and AES-GCM. It is primarily used for protecting
@@ -15,31 +15,31 @@
 //   - AES-GCM for symmetric encryption with authenticated encryption
 //   - Unique ephemeral keys for each encryption operation
 //
-// Key Functions:
+// # Key Functions
 //
 // EncryptWithPublicKey encrypts data using a public key in PEM format.
 //
 // DecryptWithPrivateKey decrypts data using a private key in PEM format.
 //
-// VerifyCertificate validates that a certificate matches a given private key and has the expected common name.
+// VerifyCertificate validates that a certificate matches a given private key and
+// has the expected common name.
 //
-// CreateCSRWithRandomKey generates a new keypair and certificate signing request with the specified common name.
+// CreateCSRWithRandomKey generates a new keypair and certificate signing request
+// with the specified common name.
 //
-// DeriveDiskKey creates a deterministic encryption key from a CSR and secret using Argon2id KDF.
+// DeriveDiskKey creates a deterministic encryption key from a CSR and secret using
+// Argon2id KDF.
 //
-// Encryption Format:
+// # Attestation Support
 //
-// The encrypted data follows this binary format:
+// The package also provides support for TEE attestation:
 //
-//	[ephemeral key length (2 bytes)][ephemeral key][iv (12 bytes)][ciphertext]
+// - DCAP attestation for Intel TDX environments
+// - MAA attestation for Azure Confidential Computing
+// - Helper functions for extracting measurements from attestation reports
+// - Conversion functions between attestation data and identity hashes
 //
-// Where:
-//   - Ephemeral key length: uint16 in big-endian format
-//   - Ephemeral key: Elliptic curve point encoded using elliptic.Marshal()
-//   - IV: 12-byte nonce for AES-GCM
-//   - Ciphertext: The encrypted data with GCM authentication tag
-//
-// Security Considerations:
+// # Security Considerations
 //
 // This package implements several security best practices:
 //
@@ -51,10 +51,11 @@
 // However, users should be aware of these considerations:
 //
 //   - The security depends on the secrecy of the private key
-//   - Data encrypted with a public key can only be decrypted with the corresponding private key
+//   - Data encrypted with a public key can only be decrypted with the
+//     corresponding private key
 //   - Error messages are intentionally vague to prevent leaking information
 //
-// Usage Example:
+// # Usage Example
 //
 //	// Get public key from PKI (typically from KMS)
 //	publicKeyPEM := pki.Pubkey

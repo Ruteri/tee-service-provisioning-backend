@@ -1,48 +1,52 @@
 # TEE Registry System
 
-A decentralized provisioning system for Trusted Execution Environment (TEE) services with robust identity verification, configuration management, and secure secret handling.
+A decentralized provisioning system for Trusted Execution Environment (TEE) services with onchain governance, flexible storage backends, and secure service discovery.
 
 ## Overview
 
-The TEE Registry System enables secure provisioning of confidential computing services through cryptographic attestation, decentralized governance, and secure configuration management. It provides a complete solution for bootstrapping TEE instances with the required cryptographic materials, configurations, and secrets while ensuring all sensitive data remains protected.
+The TEE Registry System enables secure provisioning of confidential computing services through cryptographic attestation, onchain governance, and flexible configuration management. It provides a complete solution for bootstrapping TEE instances with the required cryptographic materials, configurations, and secrets while ensuring all sensitive data remains protected.
 
 ## Key Features
 
 ### Attestation-Based Identity Verification
-- Support for Intel TDX and Azure Confidential Computing
-- Identity verification through cryptographic attestation reports (DCAP and MAA)
-- Measurement-based whitelisting for authorized access
+- Support for Intel TDX and Azure Confidential Computing (MAA)
+- Mapping from TEE report data to workload identities
+- Onchain verification of attestation reports (DCAP and MAA)
+- Whitelisting mechanism for authorized identity access
 
-### Blockchain-Based Configuration Governance
-- On-chain governance for configuration management
+### Onchain Governance
+- Standard onchain TEE service governance interface
 - Role-based access control for operators and administrators
-- Smart contract verification of identity and permissions
+- Transparent and configurable governance model
+- Mapping of workload identities to content-addressed configurations
 
 ### Secure Secret Management
-- Pre-encrypted secrets with asymmetric encryption
-- Server-side decryption only for verified TEE instances
+- Application-wide secrets derived from TEE KMS
+- Pre-encrypted secrets with the application's public key
+- Secure key management with optional Shamir's Secret Sharing recovery
 - Transparent reference resolution in configuration templates
 
-### Distributed Storage System
-- Content-addressed storage for configurations and secrets
-- Multiple storage backends:
+### Content-Addressed Storage System
+- Multiple, flexible storage backends for different needs
+- Content addressing to decouple data from specific storage providers
+- Support for various backend types:
   - File system (local development)
   - S3-compatible storage (cloud deployments)
   - IPFS storage (decentralized content)
   - On-chain storage (using smart contracts)
   - GitHub storage (read-only from repositories)
   - Vault storage (with TLS client authentication)
-- Encrypted data at rest using KMS-protected keys
 
-### Multi-Tenant Service Architecture
-- Per-application governance contracts
-- Isolated configuration and secret namespaces
-- Safe multi-tenant access through role-based permissions
+### DNS-Based Service Discovery
+- Domain names registered in onchain contracts
+- Standard DNS for IP resolution and bootstrapping
+- TLS-based authentication and authorization
+- Application-wide certificate authority managed by TEE KMS
 
 ### Flexible Key Management
 - Support for simple and Shamir's Secret Sharing KMS implementations
 - Secure bootstrapping with multi-administrator shares
-- Deterministic key derivation for reproducible cryptographic materials
+- Optional onchain-driven onboarding using already bootstrapped instances
 
 ## System Architecture
 
@@ -50,96 +54,117 @@ The system consists of the following main components:
 
 ### Core Components
 
-1. **API Package**
-   - **Provisioner**: Handles TEE instance registration with attestation verification
-   - **Server**: Provides HTTP endpoints with health checks and graceful shutdown
-   - **Shamir-KMS**: Implements secure key management with Shamir's Secret Sharing
+1. **Governance Interfaces**
+   - **WorkloadGovernance**: Handles identity verification and whitelisting
+   - **ProvisioningGovernance**: Manages configuration mapping and storage backends
+   - **OnchainDiscovery**: Provides service metadata and domain name management
 
-2. **CryptoUtils Package**
-   - Provides cryptographic operations for secure secret management
-   - Implements ECIES with AES-GCM for protecting sensitive data
-
-3. **InstanceUtils Package**
-   - **AppResolver**: Resolves application instances for secure communication
-   - **AutoProvision**: Tools for TEE instance bootstrapping with disk encryption
-   - **Proxy**: Secure routing between TEE instances
-
-4. **Interfaces Package**
-   - Defines core interfaces and types for the system
-   - Separates interface definitions from implementations
-
-5. **KMS Package**
-   - **SimpleKMS**: Basic implementation for development and testing
-   - **ShamirKMS**: Enhanced implementation with secure master key management
-
-6. **Registry Package**
-   - Interfaces with on-chain registry contracts
-   - Manages TEE identities and configurations
-
-7. **Storage Package**
+2. **Storage System**
    - Content-addressed storage with multiple backend implementations
-   - URI-based backend configuration
+   - Configuration and secret namespaces
+   - Reference resolution for configuration templates
+
+3. **Key Management Service**
+   - Application CA and secrets key management
+   - Optional Shamir's Secret Sharing recovery
+   - Onchain-driven onboarding mechanism
+
+4. **Instance Tooling**
+   - Configuration resolver for retrieving and processing configurations
+   - Service resolver for discovering and authenticating peers
+   - Disk encryption management using application credentials
 
 ## Workflow Overview
 
 ### 1. System Initialization and KMS Bootstrap
 
-The system uses a secure KMS bootstrap process with Shamir's Secret Sharing:
+The system uses a secure KMS bootstrap process:
 
 1. **Initial Setup**:
-   - Administrators generate key pairs and register public keys with the system
-   - System deploys governance contracts that define access control policies
+   - Onchain governance contracts are deployed
+   - KMS is initialized with either generation or recovery mode
+   - Administrators manage shares through secure channels
 
-2. **KMS Initialization** (choose one approach):
-   - **Generation Mode**: A master key is generated, split into shares, and encrypted individually for each admin
-   - **Recovery Mode**: System is initialized in recovery mode awaiting admin shares
-
-3. **Share Distribution/Collection**:
-   - During generation: Each admin securely retrieves their encrypted share via authenticated endpoints
-   - During recovery: Admins submit their shares with cryptographic signatures
-   - When sufficient shares are collected, the KMS is unlocked and bootstrap completes
+2. **Configuration Preparation**:
+   - Configurations and secrets are stored in content-addressed storage backends
+   - References to storage backends are registered in the governance contract
+   - Workload identities are whitelisted for authorized access
 
 ### 2. TEE Instance Provisioning
 
-Once the KMS is bootstrapped, the system can provision TEE instances:
+Once the system is bootstrapped:
 
 1. **Instance Boot**:
    - TEE instance boots with measured parameters
-   - Instance generates identity keypair and exposes public key
-   - Instance awaits operator configuration
+   - Instance generates TLS key pair and CSR
+   - Optionally waits for operator signature
 
-2. **Instance Registration**:
-   - Instance submits attestation evidence to registry API
-   - Registry verifies attestation against governance contract whitelist
-   - If valid, registry provides cryptographic materials (private key, TLS cert)
+2. **Identity Verification**:
+   - Instance submits attestation evidence to the registry
+   - Registry verifies attestation against onchain governance contract
+   - If valid, registry provides cryptographic materials
 
 3. **Configuration Resolution**:
-   - Registry fetches configuration template for instance based on identity
-   - Resolves any references to other configurations or secrets
-   - Decrypts encrypted secrets using KMS
-   - Returns complete, resolved configuration to instance
+   - Instance resolves configuration using onchain governance contract
+   - Retrieves content from registered storage backends
+   - Decrypts secrets using application private key
 
-4. **Peer Discovery**:
-   - Instance registers with peer discovery mechanism
-   - Retrieves list of other running instances
-   - Establishes secure connections using trusted certificates
+4. **Service Discovery**:
+   - Instance registers domain name in onchain contract
+   - Other instances discover peers through DNS resolution
+   - Secure connections established using TLS with CA verification
 
-## API Endpoints
+## API Interfaces
 
-### Registry API (Attested Access)
-- `POST /api/attested/register/{contract_address}` - Register a TEE instance with attestation evidence
-- `GET /api/public/app_metadata/{contract_address}` - Get application metadata (CA cert, public key)
+### Governance Interfaces
 
-See cmd/registry_client for more.
+```go
+// WorkloadGovernance handles TEE identity verification
+interface WorkloadGovernance {
+    // Identity verification and whitelisting
+    IdentityAllowed(identity [32]byte, operator [20]byte) (bool, error)
+    DCAPIdentity(report DCAPReport, events []DCAPEvent) ([32]byte, error)
+    MAAIdentity(report MAAReport) ([32]byte, error)
+}
 
-### Admin API (For KMS Bootstrap)
-- `GET /admin/status` - Get current bootstrap status and parameters
-- `POST /admin/init/generate` - Generate master key and distribute shares
-- `POST /admin/init/recover` - Start recovery process with threshold parameters
-- `GET /admin/share` - Retrieve your assigned encrypted share (admin-specific)
-- `POST /admin/share` - Submit your share during recovery with signature
+// ProvisioningGovernance manages configuration mapping
+interface ProvisioningGovernance {
+    // Configuration and storage management
+    ConfigForIdentity(identity [32]byte, operator [20]byte) ([32]byte, error)
+    StorageBackends() ([]string, error)
+}
 
-See cmd/admin for more.
+// OnchainDiscovery provides service information
+interface OnchainDiscovery {
+    // Service discovery
+    PKI() (AppPKI, error)
+    InstanceDomainNames() ([]string, error)
+}
+```
+
+### Utility Functions
+
+```go
+// Resolve configuration from onchain governance
+func ResolveConfiguration(
+    provisioningGovernance ProvisioningGovernance,
+    storageFactory StorageBackendFactory,
+    configHash [32]byte,
+    appPrivkey AppPrivkey
+) (InstanceConfig, error)
+
+// Resolve service metadata for peer discovery
+func ResolveServiceMetadata(
+    discoveryContract OnchainDiscovery
+) (ServiceMetadata, error)
+
+// Map attestation to workload identity
+func AttestationToIdentity(
+    attestationType AttestationType,
+    measurements map[int]string,
+    governance WorkloadGovernance
+) ([32]byte, error)
+```
 
 ## Storage Backend URIs
 
