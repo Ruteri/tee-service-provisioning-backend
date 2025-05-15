@@ -10,8 +10,9 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/ruteri/tee-service-provisioning-backend/api"
+	"github.com/ruteri/tee-service-provisioning-backend/api/kmshandler"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
+	"github.com/ruteri/tee-service-provisioning-backend/instanceutils/serviceresolver"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
 
@@ -19,9 +20,11 @@ import (
 // using the AppResolver to fetch certificates and CAs for different applications.
 // It manages TLS certificates for secure cross-application communication.
 type AppCertificateManager struct {
-	registrationProvider api.RegistrationProvider
-	metadataProvider     api.MetadataProvider
+	secretsProvider  kmshandler.SecretsProvider
+	onchainDiscovery interfaces.OnchainDiscovery
 
+	// TODO: fetch from KMS governance instead!
+	kmsUrl string
 	// ourAppAddress is our application's contract address for identity
 	ourAppAddress interfaces.ContractAddress
 
@@ -38,8 +41,8 @@ type AppCertificateManager struct {
 
 // NewAppCertificateManager creates a new certificate manager for application communication.
 // Parameters:
-//   - registrationProvider: Resolver for fetching signed certificates
-//   - metadataProvider: Resolver for fetching PKI
+//   - secretsProvider: fetches signed certificates
+//   - onchainDiscovery: fetches PKI
 //   - ourAppAddress: Our application's contract address
 //   - log: Logger for operational insights
 //
@@ -47,18 +50,18 @@ type AppCertificateManager struct {
 //   - Configured AppCertificateManager
 //   - Error if certificate loading fails
 func NewAppCertificateManager(
-	registrationProvider api.RegistrationProvider,
-	metadataProvider api.MetadataProvider,
+	secretsProvider kmshandler.SecretsProvider,
+	onchainDiscovery interfaces.OnchainDiscovery,
 	ourAppAddress interfaces.ContractAddress,
 	log *slog.Logger,
 ) (*AppCertificateManager, error) {
 	// Initialize manager
 	manager := &AppCertificateManager{
-		registrationProvider: registrationProvider,
-		metadataProvider:     metadataProvider,
-		ourAppAddress:        ourAppAddress,
-		caCache:              make(map[string]*x509.Certificate),
-		log:                  log,
+		secretsProvider:  secretsProvider,
+		onchainDiscovery: onchainDiscovery,
+		ourAppAddress:    ourAppAddress,
+		caCache:          make(map[string]*x509.Certificate),
+		log:              log,
 	}
 
 	// Fetch our certificate for outgoing communications
@@ -81,11 +84,11 @@ func (m *AppCertificateManager) loadOurCertificate() (*tls.Certificate, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare CSR for registration: %w", err)
 	}
-	registryResponse, err := m.registrationProvider.Register(m.ourAppAddress, csr)
+	secrets, err := m.secretsProvider.AppSecrets(m.kmsUrl, m.ourAppAddress, csr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get signed certificate from registry: %w", err)
 	}
-	tlsCert, err := tls.X509KeyPair(registryResponse.TLSCert, key)
+	tlsCert, err := tls.X509KeyPair(secrets.TLSCert, key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get certificate: %w", err)
 	}
@@ -163,13 +166,13 @@ func (m *AppCertificateManager) CACertFor(contractAddr interfaces.ContractAddres
 	}
 
 	// Fetch CA from resolver
-	metadata, err := m.metadataProvider.GetAppMetadata(contractAddr)
+	metadata, err := serviceresolver.ResolveServiceMetadata(m.onchainDiscovery)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get CA certificate: %w", err)
 	}
 
 	// Parse the PEM encoded CA cert
-	block, _ := pem.Decode(metadata.CACert)
+	block, _ := pem.Decode(metadata.PKI.Ca)
 	if block == nil || block.Type != "CERTIFICATE" {
 		return nil, fmt.Errorf("failed to decode CA certificate PEM")
 	}

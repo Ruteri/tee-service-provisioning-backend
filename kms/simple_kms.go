@@ -10,11 +10,14 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"sync"
 	"time"
 
-	"github.com/ruteri/tee-service-provisioning-backend/api"
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
@@ -27,6 +30,7 @@ type SimpleKMS struct {
 	mu        sync.RWMutex
 
 	attestationProvider cryptoutils.AttestationProvider
+	operator            interfaces.ContractAddress
 }
 
 // NewSimpleKMS creates a new instance of SimpleKMS with the provided master key.
@@ -40,10 +44,94 @@ func NewSimpleKMS(masterKey []byte) (*SimpleKMS, error) {
 	return &SimpleKMS{masterKey: masterKey, attestationProvider: &cryptoutils.DumyAttestationProvider{}}, nil
 }
 
+func OnboardRequestHash(onboardRequest interfaces.OnboardRequest) ([32]byte, error) {
+	intTy, _ := abi.NewType("int", "", nil)
+	bytesTy, _ := abi.NewType("bytes", "", nil)
+	addressTy, _ := abi.NewType("address", "", nil)
+
+	arguments := abi.Arguments{
+		{Type: bytesTy},
+		{Type: intTy},
+		{Type: addressTy},
+		{Type: bytesTy},
+	}
+
+	packed, err := arguments.Pack(onboardRequest.Pubkey, onboardRequest.Nonce, onboardRequest.Operator, onboardRequest.Attestation)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	return crypto.Keccak256Hash(packed), nil
+}
+
+func OnboardRequestReportData(kmsAddress interfaces.ContractAddress, onboardRequest interfaces.OnboardRequest) [64]byte {
+	var onboardReportData [64]byte
+	onboardRequestSerialized := onboardRequest.Pubkey
+	onboardRequestSerialized = append(onboardRequestSerialized, onboardRequest.Nonce.Bytes()...)
+	onboardRequestSerialized = append(onboardRequestSerialized, onboardRequest.Operator.Bytes()...)
+
+	operatorRequestHash := sha256.Sum256(onboardRequestSerialized)
+	copy(onboardReportData[:20], kmsAddress[:])
+	copy(onboardReportData[20:], operatorRequestHash[:])
+
+	return onboardReportData
+}
+
+func (k *SimpleKMS) RequestOnboard(kmsAddress interfaces.ContractAddress, operator interfaces.ContractAddress, pubkey interfaces.AppPubkey) (interfaces.OnboardRequest, error) {
+	randomInt, err := rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
+	if err != nil {
+		return interfaces.OnboardRequest{}, err
+	}
+
+	nonce := big.NewInt(randomInt.Int64())
+	if err != nil {
+		return interfaces.OnboardRequest{}, err
+	}
+
+	onboardRequest := interfaces.OnboardRequest{
+		Pubkey:   pubkey,
+		Nonce:    nonce,
+		Operator: common.Address(operator),
+	}
+
+	reportData := OnboardRequestReportData(kmsAddress, onboardRequest)
+	onboardRequest.Attestation, err = k.attestationProvider.Attest(reportData)
+	if err != nil {
+		return interfaces.OnboardRequest{}, err
+	}
+
+	return onboardRequest, nil
+}
+
+func (k *SimpleKMS) OnboardRemote(pubkey cryptoutils.AppPubkey) ([]byte, error) {
+	// Note: vaidation done by the caller. Might be a good idea to consider moving it here to match RequestOnboard.
+	return cryptoutils.EncryptWithPublicKey(pubkey, k.masterKey)
+}
+
+func (k *SimpleKMS) WithSeed(seed []byte) *SimpleKMS {
+	newkms := &SimpleKMS{
+		masterKey:           make([]byte, len(k.masterKey)),
+		attestationProvider: k.attestationProvider,
+		operator:            k.operator,
+	}
+	copy(newkms.masterKey, seed)
+	return newkms
+}
+
 func (k *SimpleKMS) WithAttestationProvider(provider cryptoutils.AttestationProvider) *SimpleKMS {
 	newkms := &SimpleKMS{
 		masterKey:           make([]byte, len(k.masterKey)),
 		attestationProvider: provider,
+		operator:            k.operator,
+	}
+	copy(newkms.masterKey, k.masterKey)
+	return newkms
+}
+
+func (k *SimpleKMS) WithOperator(operator interfaces.ContractAddress) *SimpleKMS {
+	newkms := &SimpleKMS{
+		masterKey:           make([]byte, len(k.masterKey)),
+		attestationProvider: k.attestationProvider,
+		operator:            operator,
 	}
 	copy(newkms.masterKey, k.masterKey)
 	return newkms
@@ -101,13 +189,15 @@ func (k *SimpleKMS) GetPKI(contractAddr interfaces.ContractAddress) (interfaces.
 		Bytes: pubKeyBytes,
 	})
 
-	reportData := api.ReportData(contractAddr, certPEM, pubKeyPEM)
-	attestation, err := k.attestationProvider.Attest(reportData)
+	pkiData := interfaces.AppPKI{Ca: certPEM, Pubkey: pubKeyPEM}
+	reportData := pkiData.ReportData(contractAddr)
+
+	pkiData.Attestation, err = k.attestationProvider.Attest(reportData)
 	if err != nil {
 		return interfaces.AppPKI{}, fmt.Errorf("failed to attest: %w", err)
 	}
 
-	return interfaces.AppPKI{certPEM, pubKeyPEM, attestation}, nil
+	return pkiData, nil
 }
 
 // GetAppPrivkey returns the application private key for the specified contract address.
@@ -191,6 +281,28 @@ func (k *SimpleKMS) SignCSR(contractAddr interfaces.ContractAddress, csr interfa
 		Type:  "CERTIFICATE",
 		Bytes: certDER,
 	}), nil
+}
+
+func (k *SimpleKMS) AppSecrets(contractAddr interfaces.ContractAddress, csr interfaces.TLSCSR) (*interfaces.AppSecrets, error) {
+	appPrivkey, err := k.GetAppPrivkey(contractAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	cert, err := k.SignCSR(contractAddr, csr)
+	if err != nil {
+		return nil, err
+	}
+
+	appSecrets := &interfaces.AppSecrets{
+		AppPrivkey: appPrivkey,
+		TLSCert:    cert,
+		Operator:   k.operator,
+	}
+
+	reportData := appSecrets.ReportData(contractAddr)
+	appSecrets.Attestation, err = k.attestationProvider.Attest(reportData)
+	return appSecrets, err
 }
 
 // deriveCAKey derives a CA key from a contract address

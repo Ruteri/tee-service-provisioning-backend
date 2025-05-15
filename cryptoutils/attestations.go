@@ -15,6 +15,8 @@ import (
 	"github.com/google/go-tdx-guest/verify"
 )
 
+var OIDOperatorSignature asn1.ObjectIdentifier = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 66704, 98670, 17}
+
 var (
 	DCAPAttestation = AttestationType{
 		OID:      asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 66704, 98645, 1},
@@ -131,7 +133,7 @@ func (DumyAttestationProvider) Attest(userData [64]byte) ([]byte, error) {
 	return []byte(fmt.Sprintf("Attestation for CA %x", userData)), nil
 }
 
-func VerifyDCAPAttestation(reportData [64]byte, report []byte) (map[int][]byte, error) {
+func VerifyDCAPAttestation(reportData [64]byte, report []byte) (map[int]string, error) {
 	protoQuote, err := tdx_abi.QuoteToProto(report)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse quote: %w", err)
@@ -162,15 +164,15 @@ func VerifyDCAPAttestation(reportData [64]byte, report []byte) (map[int][]byte, 
 
 	fmt.Println("attestation validation successful")
 
-	measurements := map[int][]byte{
-		0: v4Quote.TdQuoteBody.MrTd,
-		1: v4Quote.TdQuoteBody.Rtmrs[0],
-		2: v4Quote.TdQuoteBody.Rtmrs[1],
-		3: v4Quote.TdQuoteBody.Rtmrs[2],
-		4: v4Quote.TdQuoteBody.Rtmrs[3],
-		5: v4Quote.TdQuoteBody.MrConfigId,
-		6: v4Quote.TdQuoteBody.MrOwner,
-		7: v4Quote.TdQuoteBody.MrOwnerConfig,
+	measurements := map[int]string{
+		0: hex.EncodeToString(v4Quote.TdQuoteBody.MrTd),
+		1: hex.EncodeToString(v4Quote.TdQuoteBody.Rtmrs[0]),
+		2: hex.EncodeToString(v4Quote.TdQuoteBody.Rtmrs[1]),
+		3: hex.EncodeToString(v4Quote.TdQuoteBody.Rtmrs[2]),
+		4: hex.EncodeToString(v4Quote.TdQuoteBody.Rtmrs[3]),
+		5: hex.EncodeToString(v4Quote.TdQuoteBody.MrConfigId),
+		6: hex.EncodeToString(v4Quote.TdQuoteBody.MrOwner),
+		7: hex.EncodeToString(v4Quote.TdQuoteBody.MrOwnerConfig),
 	}
 
 	return measurements, nil

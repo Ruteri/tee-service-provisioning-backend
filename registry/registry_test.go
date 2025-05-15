@@ -48,7 +48,7 @@ func TestRegistryContract_Identity(t *testing.T) {
 		MrConfigOwner: [48]byte{0x07},
 	}
 
-	dcapIdentity, err := regClient.ComputeDCAPIdentity(dcapReport)
+	dcapIdentity, err := regClient.DCAPIdentity(*dcapReport, nil)
 	assert.NoError(t, err)
 	assert.NotEqual(t, [32]byte{}, dcapIdentity, "DCAP identity should not be empty")
 
@@ -61,7 +61,7 @@ func TestRegistryContract_Identity(t *testing.T) {
 	maaReport.PCRs[9] = [32]byte{0x09, 0x09}
 	maaReport.PCRs[11] = [32]byte{0x0b, 0x0b}
 
-	maaIdentity, err := regClient.ComputeMAAIdentity(maaReport)
+	maaIdentity, err := regClient.MAAIdentity(*maaReport)
 	assert.NoError(t, err)
 	assert.NotEqual(t, [32]byte{}, maaIdentity, "MAA identity should not be empty")
 }
@@ -103,19 +103,19 @@ func TestRegistryContract_ArtifactAndIdentity(t *testing.T) {
 	}
 
 	// Calculate and set the identity for this report
-	identity, err := regClient.ComputeDCAPIdentity(dcapReport)
+	identity, err := regClient.DCAPIdentity(*dcapReport, nil)
 	assert.NoError(t, err)
 	_, err = regClient.SetConfigForIdentity(identity, artifactHash)
 	assert.NoError(t, err)
 	backend.Commit()
 
 	// Verify artifact mapping
-	mappedArtifact, err := regClient.IdentityConfigMap(identity, auth.From)
+	mappedArtifact, err := regClient.ConfigForIdentity(identity, auth.From)
 	assert.NoError(t, err)
 	assert.Equal(t, artifactHash, mappedArtifact)
 
 	// Verify artifact mapping returns empty for unauthorized operator
-	unmappedArtifact, err := regClient.IdentityConfigMap(identity, [20]byte{})
+	unmappedArtifact, err := regClient.ConfigForIdentity(identity, [20]byte{})
 	assert.Error(t, err)
 	assert.Equal(t, [32]byte{}, unmappedArtifact)
 
@@ -125,7 +125,7 @@ func TestRegistryContract_ArtifactAndIdentity(t *testing.T) {
 	backend.Commit()
 
 	// Verify identity no longer has an artifact mapping
-	_, err = regClient.IdentityConfigMap(identity, [20]byte{})
+	_, err = regClient.ConfigForIdentity(identity, [20]byte{})
 	assert.Error(t, err)
 }
 
@@ -157,7 +157,7 @@ func TestRegistryContract_StorageBackends(t *testing.T) {
 	}
 
 	// Test retrieving all storage backends
-	storedBackends, err := regClient.AllStorageBackends()
+	storedBackends, err := regClient.StorageBackends()
 	assert.NoError(t, err)
 	assert.Len(t, storedBackends, len(backends))
 
@@ -167,7 +167,7 @@ func TestRegistryContract_StorageBackends(t *testing.T) {
 	backend.Commit()
 
 	// Verify backend was removed
-	storedBackends, err = regClient.AllStorageBackends()
+	storedBackends, err = regClient.StorageBackends()
 	assert.NoError(t, err)
 	assert.Len(t, storedBackends, len(backends)-1)
 
@@ -209,7 +209,7 @@ func TestRegistryContract_DomainNames(t *testing.T) {
 	}
 
 	// Test retrieving all domain names
-	storedDomains, err := regClient.AllInstanceDomainNames()
+	storedDomains, err := regClient.InstanceDomainNames()
 	assert.NoError(t, err)
 	assert.Len(t, storedDomains, len(domains))
 

@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/ruteri/tee-service-provisioning-backend/api"
+	"github.com/ruteri/tee-service-provisioning-backend/api/server"
 	"github.com/ruteri/tee-service-provisioning-backend/common"
 	"github.com/urfave/cli/v2"
 )
@@ -30,16 +30,12 @@ func SetupLogger(cCtx *cli.Context) (log *slog.Logger) {
 	return logger
 }
 
-func ConfigureServer(cCtx *cli.Context, logger *slog.Logger, listenAddr string) *api.HTTPServerConfig {
-	metricsAddr := cCtx.String("metrics-addr")
-	enablePprof := cCtx.Bool("pprof")
+func ConfigureServer(cCtx *cli.Context, logger *slog.Logger, listenAddr string) *server.HTTPServerConfig {
 	drainDuration := time.Duration(cCtx.Int64("drain-seconds")) * time.Second
 
-	return &api.HTTPServerConfig{
+	return &server.HTTPServerConfig{
 		ListenAddr:               listenAddr,
-		MetricsAddr:              metricsAddr,
 		Log:                      logger,
-		EnablePprof:              enablePprof,
 		DrainDuration:            drainDuration,
 		GracefulShutdownDuration: 30 * time.Second,
 		ReadTimeout:              60 * time.Second,
@@ -92,27 +88,15 @@ var LogServiceFlagFn = func(service string) *cli.StringFlag {
 	}
 }
 
-var PprofFlag = &cli.BoolFlag{
-	Name:  "pprof",
-	Value: false,
-	Usage: "enable pprof debug endpoint",
-}
 var DrainSecondsFlag = &cli.Int64Flag{
 	Name:  "drain-seconds",
 	Value: 45,
 	Usage: "seconds to wait in drain HTTP request",
-}
-var MetricsAddrFlag = &cli.StringFlag{
-	Name:  "metrics-addr",
-	Value: "127.0.0.1:8090",
-	Usage: "address to listen on for Prometheus metrics",
 }
 
 var CommonFlags = []cli.Flag{
 	LogJsonFlag,
 	LogDebugFlag,
 	LogUidFlag,
-	PprofFlag,
 	DrainSecondsFlag,
-	MetricsAddrFlag,
 }

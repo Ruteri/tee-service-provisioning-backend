@@ -51,24 +51,24 @@ func (c *OnchainRegistryClient) SetTransactOpts(auth *bind.TransactOpts) {
 	c.auth = auth
 }
 
-// GetPKI retrieves the Certificate Authority and application public key information
+// PKI retrieves the Certificate Authority and application public key information
 // from the registry contract.
-func (c *OnchainRegistryClient) GetPKI() (*interfaces.AppPKI, error) {
+func (c *OnchainRegistryClient) PKI() (interfaces.AppPKI, error) {
 	opts := &bind.CallOpts{Context: context.Background()}
 
-	pki, err := c.contract.GetPKI(opts)
+	pki, err := c.contract.PKI(opts)
 	if err != nil {
-		return nil, err
+		return interfaces.AppPKI{}, err
 	}
 
-	return &interfaces.AppPKI{
+	return interfaces.AppPKI{
 		Ca:          pki.Ca,
 		Pubkey:      pki.Pubkey,
 		Attestation: pki.Attestation,
 	}, nil
 }
 
-func DCAPReportToContractDCAPReport(report *interfaces.DCAPReport) registry.DCAPReport {
+func DCAPReportToContractDCAPReport(report interfaces.DCAPReport) registry.DCAPReport {
 	// Convert interfaces.DCAPReport to registry.DCAPReport
 	contractReport := registry.DCAPReport{}
 
@@ -87,9 +87,9 @@ func DCAPReportToContractDCAPReport(report *interfaces.DCAPReport) registry.DCAP
 	return contractReport
 }
 
-// ComputeDCAPIdentity calculates the identity hash for a DCAP report
+// DCAPIdentity calculates the identity hash for a DCAP report
 // using the same algorithm as the on-chain registry.
-func (c *OnchainRegistryClient) ComputeDCAPIdentity(report *interfaces.DCAPReport) ([32]byte, error) {
+func (c *OnchainRegistryClient) DCAPIdentity(report interfaces.DCAPReport, events []interfaces.DCAPEvent) ([32]byte, error) {
 	opts := &bind.CallOpts{Context: context.Background()}
 
 	// Convert interfaces.DCAPReport to registry.DCAPReport
@@ -101,9 +101,9 @@ func (c *OnchainRegistryClient) ComputeDCAPIdentity(report *interfaces.DCAPRepor
 	return c.contract.DCAPIdentity(opts, contractReport, emptyEventLog)
 }
 
-// ComputeMAAIdentity calculates the identity hash for an MAA report
+// MAAIdentity calculates the identity hash for an MAA report
 // using the same algorithm as the on-chain registry.
-func (c *OnchainRegistryClient) ComputeMAAIdentity(report *interfaces.MAAReport) ([32]byte, error) {
+func (c *OnchainRegistryClient) MAAIdentity(report interfaces.MAAReport) ([32]byte, error) {
 	opts := &bind.CallOpts{Context: context.Background()}
 
 	// Convert interfaces.MAAReport to registry.MAAReport
@@ -119,18 +119,18 @@ func (c *OnchainRegistryClient) IdentityAllowed(identity [32]byte, operator [20]
 	return c.contract.IdentityAllowed(opts, identity, operator)
 }
 
-// IdentityConfigMap gets the config hash assigned to an identity in the registry.
-func (c *OnchainRegistryClient) IdentityConfigMap(identity [32]byte, address [20]byte) ([32]byte, error) {
+// ConfigForIdentity gets the config hash assigned to an identity in the registry.
+func (c *OnchainRegistryClient) ConfigForIdentity(identity [32]byte, address [20]byte) ([32]byte, error) {
 	opts := &bind.CallOpts{Context: context.Background()}
 
-	return c.contract.GetConfigForIdentity(opts, identity, address)
+	return c.contract.ConfigForIdentity(opts, identity, address)
 }
 
-// AllStorageBackends retrieves all storage backend URIs registered in the contract.
-func (c *OnchainRegistryClient) AllStorageBackends() ([]string, error) {
+// StorageBackends retrieves all storage backend URIs registered in the contract.
+func (c *OnchainRegistryClient) StorageBackends() ([]string, error) {
 	opts := &bind.CallOpts{Context: context.Background()}
 
-	return c.contract.AllStorageBackends(opts)
+	return c.contract.StorageBackends(opts)
 }
 
 // AddStorageBackend adds a new storage backend URI to the registry.
@@ -166,11 +166,11 @@ func (c *OnchainRegistryClient) RegisterInstanceDomainName(domain string) (*type
 	return tx, err
 }
 
-// AllInstanceDomainNames retrieves all registered instance domain names from the registry.
-func (c *OnchainRegistryClient) AllInstanceDomainNames() ([]string, error) {
+// InstanceDomainNames retrieves all registered instance domain names from the registry.
+func (c *OnchainRegistryClient) InstanceDomainNames() ([]string, error) {
 	opts := &bind.CallOpts{Context: context.Background()}
 
-	return c.contract.AllInstanceDomainNames(opts)
+	return c.contract.InstanceDomainNames(opts)
 }
 
 // AddArtifact adds a new artifact to the registry and returns its hash.
@@ -211,7 +211,7 @@ func (c *OnchainRegistryClient) SetConfigForIdentity(identity [32]byte, artifact
 
 // SetConfigForDCAP associates an artifact with a DCAP-attested identity.
 // Returns the transaction and an error if the transaction could not be sent.
-func (c *OnchainRegistryClient) SetConfigForDCAP(report *interfaces.DCAPReport, artifactHash [32]byte) (*types.Transaction, error) {
+func (c *OnchainRegistryClient) SetConfigForDCAP(report interfaces.DCAPReport, artifactHash [32]byte) (*types.Transaction, error) {
 	if c.auth == nil {
 		return nil, ErrNoTransactOpts
 	}
@@ -227,7 +227,7 @@ func (c *OnchainRegistryClient) SetConfigForDCAP(report *interfaces.DCAPReport, 
 
 // SetConfigForMAA associates an artifact with an MAA-attested identity.
 // Returns the transaction and an error if the transaction could not be sent.
-func (c *OnchainRegistryClient) SetConfigForMAA(report *interfaces.MAAReport, artifactHash [32]byte) (*types.Transaction, error) {
+func (c *OnchainRegistryClient) SetConfigForMAA(report interfaces.MAAReport, artifactHash [32]byte) (*types.Transaction, error) {
 	if c.auth == nil {
 		return nil, ErrNoTransactOpts
 	}

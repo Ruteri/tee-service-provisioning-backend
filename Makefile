@@ -96,13 +96,21 @@ docker-httpserver: ## Build the HTTP server Docker image
 .PHONY: bindings
 bindings: ## Generate golang bindings for the contract
 	forge build ./src/OnchainRegistry.sol
+	forge build ./src/KMS.sol
 	jq '.abi' out/OnchainRegistry.sol/Registry.json > Registry.abi
+	jq '.abi' out/KMS.sol/KMS.json > KMS.abi
 	jq -r '.bytecode.object' out/OnchainRegistry.sol/Registry.json > Registry.bin
+	jq -r '.bytecode.object' out/KMS.sol/KMS.json > KMS.bin
 	abigen --abi=Registry.abi --bin=Registry.bin --pkg=registry --out=bindings/registry/registry.go
+	abigen --abi=KMS.abi --bin=KMS.bin --pkg=kms --out=bindings/kms/kms.go
 
 .PHONY: deploy-registry
 deploy-registry: ## Deploy and verify registry on Sepolia. Requires etherscan API key. Asks for private key.
 	forge c --verify --rpc-url https://1rpc.io/sepolia --verifier etherscan -i -C contracts src/OnchainRegistry.sol:Registry --broadcast
+
+.PHONY: deploy-kms
+deploy-kms: ## Deploy and verify on Sepolia. Requires etherscan API key. Asks for private key.
+	forge c --verify --rpc-url https://1rpc.io/sepolia --verifier etherscan -i -C contracts src/KMS.sol:KMS --broadcast
 
 .PHONY: context
 context: ## Generate godoc for all files

@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/ruteri/tee-service-provisioning-backend/api"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
 
@@ -24,7 +23,7 @@ import (
 //
 // The returned attestation should be verified by the caller to ensure the authenticity
 // of the PKI information before using it for certificate validation.
-func PKI(url string, contractAddr interfaces.ContractAddress) (*api.PKIResponse, error) {
+func PKI(url string, contractAddr interfaces.ContractAddress) (*interfaces.AppPKI, error) {
 	req, err := http.NewRequest(
 		http.MethodGet,
 		fmt.Sprintf("%s/api/public/pki/%s", url, contractAddr.String()),
@@ -45,7 +44,7 @@ func PKI(url string, contractAddr interfaces.ContractAddress) (*api.PKIResponse,
 		return nil, fmt.Errorf("could not read pki response: %w", err)
 	}
 
-	var pkiResp api.PKIResponse
+	var pkiResp PKIResponse
 	err = json.Unmarshal(body, &pkiResp)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse pki response: %w", err)
@@ -53,5 +52,9 @@ func PKI(url string, contractAddr interfaces.ContractAddress) (*api.PKIResponse,
 
 	// TODO: verify the attestation against onchain kms governance
 
-	return &pkiResp, nil
+	return &interfaces.AppPKI{
+		Pubkey:      pkiResp.AppPubkey,
+		Ca:          pkiResp.CACert,
+		Attestation: pkiResp.Attestation,
+	}, nil
 }

@@ -3,6 +3,8 @@ package cryptoutils
 import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
@@ -254,4 +256,33 @@ func (priv AppPrivkey) GetPublicKey() (interface{}, error) {
 	default:
 		return nil, fmt.Errorf("unsupported private key type: %T", parsedPriv)
 	}
+}
+
+func RandomP256Keypair() (AppPubkey, AppPrivkey, error) {
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	privateKeyBytes, err := x509.MarshalECPrivateKey(privateKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	privateKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "EC PRIVATE KEY",
+		Bytes: privateKeyBytes,
+	})
+
+	pubkeyBytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pubkeyKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: pubkeyBytes,
+	})
+
+	return AppPubkey(pubkeyKeyPEM), AppPrivkey(privateKeyPEM), nil
 }

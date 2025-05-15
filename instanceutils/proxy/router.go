@@ -22,7 +22,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/ruteri/tee-service-provisioning-backend/api"
+	"github.com/ruteri/tee-service-provisioning-backend/instanceutils/serviceresolver"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 )
 
@@ -52,7 +52,7 @@ type RouterConfig struct {
 	CertManager CertificateManager
 
 	// Application resolver
-	Resolver api.MetadataProvider
+	Registry interfaces.OnchainRegistry
 
 	// Address for incoming requests from other instances
 	IngressListenAddr string
@@ -424,7 +424,7 @@ func (r *HTTPRouter) handleEgressRequest(w http.ResponseWriter, req *http.Reques
 	copy(targetAppAddr[:], targetAppAddrBytes[:20])
 
 	// Resolve instances for the target app
-	metadata, err := r.config.Resolver.GetAppMetadata(targetAppAddr)
+	metadata, err := serviceresolver.ResolveServiceMetadata(r.config.Registry)
 	if err != nil {
 		r.config.Log.Error("Failed to resolve instances for target app",
 			"app", targetApp, "err", err)
@@ -433,14 +433,14 @@ func (r *HTTPRouter) handleEgressRequest(w http.ResponseWriter, req *http.Reques
 	}
 
 	// Check if we have any instances available
-	if len(metadata.DomainNames) == 0 {
+	if len(metadata.IPs) == 0 {
 		r.config.Log.Warn("No instances available for target app", "app", targetApp)
 		http.Error(w, "No instances available for target application", http.StatusServiceUnavailable)
 		return
 	}
 
 	// Get or create transport for the target app
-	transport, err := r.getOrCreateTransport(sourceAppAddr, targetAppAddr, metadata.CACert)
+	transport, err := r.getOrCreateTransport(sourceAppAddr, targetAppAddr, metadata.PKI.Ca)
 	if err != nil {
 		r.config.Log.Error("Failed to create transport for target app",
 			"app", targetApp, "err", err)
@@ -451,16 +451,10 @@ func (r *HTTPRouter) handleEgressRequest(w http.ResponseWriter, req *http.Reques
 	// Set ourselves as the host for routing on the server
 	req.Host = fmt.Sprintf("%s.app", sourceApp)
 
-	// TODO: resolve the DNS!
-	resolvedInstances := []string{}
-	for _, dn := range metadata.DomainNames {
-		resolvedInstances = append(resolvedInstances, string(dn))
-	}
-
 	// Handle different request types
 	if requestType == "" || requestType == "any" {
 		// Single instance request - pick a random instance for load balancing
-		instanceAddr := r.pickRandomInstance(resolvedInstances)
+		instanceAddr := r.pickRandomInstance(metadata.IPs)
 		targetURL, err := url.Parse(fmt.Sprintf("https://%s", instanceAddr))
 
 		if err != nil {
@@ -479,7 +473,7 @@ func (r *HTTPRouter) handleEgressRequest(w http.ResponseWriter, req *http.Reques
 		return
 	} else if requestType == "all" {
 		// Broadcast request to all instances and collect responses
-		r.handleBroadcastRequest(w, req, resolvedInstances, transport)
+		r.handleBroadcastRequest(w, req, metadata.IPs, transport)
 		return
 	}
 

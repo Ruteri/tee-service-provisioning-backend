@@ -301,6 +301,17 @@ func (k *ShamirKMS) SignCSR(contractAddr interfaces.ContractAddress, csr interfa
 	return k.SimpleKMS().SignCSR(contractAddr, csr)
 }
 
+func (k *ShamirKMS) AppSecrets(contractAddr interfaces.ContractAddress, csr interfaces.TLSCSR) (*interfaces.AppSecrets, error) {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+
+	if !k.isUnlocked {
+		return nil, errors.New("KMS is locked - need more shares to unlock")
+	}
+
+	return k.SimpleKMS().AppSecrets(contractAddr, csr)
+}
+
 // Securely wipe data from memory
 func wipeBytes(data []byte) {
 	for i := range data {

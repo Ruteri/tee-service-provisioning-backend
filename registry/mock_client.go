@@ -44,16 +44,16 @@ func (m *MockRegistryClient) SetTransactOpts() {
 	m.allowTransacting = true
 }
 
-// GetPKI returns the mock PKI information or an error if none is set.
+// PKI returns the mock PKI information or an error if none is set.
 // The PKI includes CA certificate, application public key, and attestation data.
-func (m *MockRegistryClient) GetPKI() (*interfaces.AppPKI, error) {
+func (m *MockRegistryClient) PKI() (interfaces.AppPKI, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
 	if m.pki == nil {
-		return nil, errors.New("no PKI configured")
+		return interfaces.AppPKI{}, errors.New("no PKI configured")
 	}
-	return m.pki, nil
+	return *m.pki, nil
 }
 
 // RegisterPKI registers PKI information with the mock registry.
@@ -79,17 +79,17 @@ func (m *MockRegistryClient) AddArtifact(data []byte) ([32]byte, *types.Transact
 	return hash, &types.Transaction{}, nil
 }
 
-// ComputeDCAPIdentity calculates a mock identity from a DCAP report.
+// DCAPIdentity calculates a mock identity from a DCAP report.
 // This implementation simply hashes the first two RTMRs for demonstration purposes.
-func (m *MockRegistryClient) ComputeDCAPIdentity(report *interfaces.DCAPReport) ([32]byte, error) {
+func (m *MockRegistryClient) DCAPIdentity(report interfaces.DCAPReport, events []interfaces.DCAPEvent) ([32]byte, error) {
 	// Simple mock implementation that hashes the first two RTMRs
 	var data []byte = append(report.RTMRs[0][:], report.RTMRs[1][:]...)
 	return sha256.Sum256(data[:]), nil
 }
 
-// ComputeMAAIdentity calculates a mock identity from an MAA report.
+// MAAIdentity calculates a mock identity from an MAA report.
 // This implementation simply hashes the first few PCRs for demonstration purposes.
-func (m *MockRegistryClient) ComputeMAAIdentity(report *interfaces.MAAReport) ([32]byte, error) {
+func (m *MockRegistryClient) MAAIdentity(report interfaces.MAAReport) ([32]byte, error) {
 	// Simple mock implementation that hashes the first few PCRs
 	var data []byte
 	data = append(data, report.PCRs[0][:]...)
@@ -114,9 +114,9 @@ func (m *MockRegistryClient) IdentityAllowed(identity [32]byte, operator [20]byt
 	return true, nil
 }
 
-// IdentityConfigMap gets the artifact hash assigned to an identity in the mock registry.
+// ConfigForIdentity gets the artifact hash assigned to an identity in the mock registry.
 // Returns the artifact hash or an error if no mapping exists for the provided identity.
-func (m *MockRegistryClient) IdentityConfigMap(identity [32]byte, operator [20]byte) ([32]byte, error) {
+func (m *MockRegistryClient) ConfigForIdentity(identity [32]byte, operator [20]byte) ([32]byte, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
@@ -131,9 +131,9 @@ func (m *MockRegistryClient) IdentityConfigMap(identity [32]byte, operator [20]b
 	return artifactHash, nil
 }
 
-// AllStorageBackends returns all registered storage backends from the mock registry.
+// StorageBackends returns all registered storage backends from the mock registry.
 // These backends represent storage locations where artifacts can be stored and retrieved.
-func (m *MockRegistryClient) AllStorageBackends() ([]string, error) {
+func (m *MockRegistryClient) StorageBackends() ([]string, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
@@ -208,9 +208,9 @@ func (m *MockRegistryClient) RegisterInstanceDomainName(domain string) (*types.T
 	return &types.Transaction{}, nil
 }
 
-// AllInstanceDomainNames retrieves all registered instance domain names from the mock registry.
+// InstanceDomainNames retrieves all registered instance domain names from the mock registry.
 // These domain names represent endpoints where TEE instances can be accessed.
-func (m *MockRegistryClient) AllInstanceDomainNames() ([]string, error) {
+func (m *MockRegistryClient) InstanceDomainNames() ([]string, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
