@@ -36,9 +36,9 @@
 //	    IdentityAllowed(identity [32]byte, operator [20]byte) (bool, error)
 //	}
 //
-// ProvisioningGovernance: Manages configuration mapping for TEE instances
+// ConfigGovernance: Manages configuration mapping for TEE instances
 //
-//	type ProvisioningGovernance interface {
+//	type ConfigGovernance interface {
 //	    ConfigForIdentity(identity [32]byte, operator [20]byte) ([32]byte, error)
 //	    StorageBackends() ([]string, error)
 //	}

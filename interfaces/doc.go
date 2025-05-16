@@ -8,7 +8,7 @@
 // WorkloadGovernance: Handles TEE identity verification through attestation, including
 // mapping attestation reports to identity hashes and verifying authorization.
 //
-// ProvisioningGovernance: Manages configuration mapping for TEE instances, associating
+// ConfigGovernance: Manages configuration mapping for TEE instances, associating
 // identity hashes with configuration hashes and tracking storage backend URIs.
 //
 // OnchainDiscovery: Provides service discovery mechanisms, including PKI information

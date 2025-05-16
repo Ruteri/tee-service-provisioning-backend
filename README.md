@@ -56,7 +56,7 @@ The system consists of the following main components:
 
 1. **Governance Interfaces**
    - **WorkloadGovernance**: Handles identity verification and whitelisting
-   - **ProvisioningGovernance**: Manages configuration mapping and storage backends
+   - **ConfigGovernance**: Manages configuration mapping and storage backends
    - **OnchainDiscovery**: Provides service metadata and domain name management
 
 2. **Storage System**
@@ -127,8 +127,8 @@ interface WorkloadGovernance {
     MAAIdentity(report MAAReport) ([32]byte, error)
 }
 
-// ProvisioningGovernance manages configuration mapping
-interface ProvisioningGovernance {
+// ConfigGovernance manages configuration mapping
+interface ConfigGovernance {
     // Configuration and storage management
     ConfigForIdentity(identity [32]byte, operator [20]byte) ([32]byte, error)
     StorageBackends() ([]string, error)
@@ -147,7 +147,7 @@ interface OnchainDiscovery {
 ```go
 // Resolve configuration from onchain governance
 func ResolveConfiguration(
-    provisioningGovernance ProvisioningGovernance,
+    configGovernance ConfigGovernance,
     storageFactory StorageBackendFactory,
     configHash [32]byte,
     appPrivkey AppPrivkey

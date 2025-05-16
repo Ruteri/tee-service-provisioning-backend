@@ -72,8 +72,8 @@ type KMSGovernance interface {
 	FetchOnboardRequest([32]byte) (OnboardRequest, error)
 }
 
-// ProvisioningGovernance manages TEE instance configuration.
-type PorvisioningGovernance interface {
+// ConfigGovernance manages TEE instance configuration.
+type ConfigGovernance interface {
 	// ConfigForIdentity gets configuration hash for an identity.
 	ConfigForIdentity(identity [32]byte, operator [20]byte) ([32]byte, error)
 

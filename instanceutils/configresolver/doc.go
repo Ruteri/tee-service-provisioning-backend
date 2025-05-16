@@ -4,7 +4,7 @@
 //
 // The configresolver package implements the standard application configuration
 // and secrets framework for the TEE registry system. It works with onchain
-// provisioning governance contracts to fetch and process configuration templates
+// config governance contracts to fetch and process configuration templates
 // from content-addressed storage backends, resolving references and decrypting
 // secrets.
 //
@@ -44,7 +44,7 @@
 //	// Create storage factory
 //	factory := storage.NewStorageBackendFactory(logger, registryFactory)
 //
-//	// Resolve configuration using provisioning governance contract
+//	// Resolve configuration using config governance contract
 //	config, err := configresolver.ResolveConfiguration(
 //		ctx,
 //		logger,
