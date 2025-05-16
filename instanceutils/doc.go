@@ -10,6 +10,7 @@
 //
 // - configresolver: Resolves configuration from content-addressed storage backends
 // - serviceresolver: Discovers peer instances using DNS and TLS-based authentication
+// - diskutil: Manages encrypted persistent storage with LUKS for TEE instances
 // - autoprovision: Manages TEE instance bootstrapping with disk encryption
 //
 // # Configuration Resolution
@@ -30,6 +31,16 @@
 // - Resolves domains to IP addresses using standard DNS
 // - Fetches CA certificates for TLS validation
 // - Provides metadata for establishing secure connections
+//
+// # Encrypted Storage Management
+//
+// The diskutil package provides secure disk management functionality:
+//
+// - Creates and mounts LUKS2 encrypted volumes
+// - Derives encryption keys from application credentials
+// - Stores disk metadata securely in LUKS tokens
+// - Supports both new disk provisioning and remounting existing disks
+// - Integrates with application private keys for secure key derivation
 //
 // # Instance Provisioning
 //
@@ -69,6 +80,10 @@
 //
 //	// Resolve service metadata for peer discovery
 //	metadata, err := serviceresolver.ResolveServiceMetadata(discoveryContract)
+//
+//	// Provision or mount encrypted disk
+//	diskConfig := diskutil.NewDiskConfig(devicePath, mountPoint, "cryptdisk")
+//	diskLabel, isNew, err := diskutil.ProvisionOrMountDisk(diskConfig, appPrivkey)
 //
 //	// Use metadata.PKI for TLS verification
 //	// Use metadata.IPs for connecting to instances

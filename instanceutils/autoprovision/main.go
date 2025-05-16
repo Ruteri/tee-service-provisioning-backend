@@ -24,6 +24,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/ruteri/tee-service-provisioning-backend/api/kmshandler"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
+	"github.com/ruteri/tee-service-provisioning-backend/instanceutils/diskutil"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
 	"github.com/ruteri/tee-service-provisioning-backend/kmsgovernance"
 	"github.com/ruteri/tee-service-provisioning-backend/registry"
@@ -163,7 +164,7 @@ func main() {
 
 type Provisioner struct {
 	AppContract    interfaces.ContractAddress
-	DiskConfig     DiskConfig
+	DiskConfig     diskutil.DiskConfig
 	ConfigFilePath string
 	TLSCertPath    string
 	TLSKeyPath     string
@@ -183,7 +184,7 @@ type OperatorSignatureConfig struct {
 }
 
 func NewProvisioner(cCtx *cli.Context) (*Provisioner, error) {
-	devicePath, err := devicePathForGlob(cCtx.String("device-glob"))
+	devicePath, err := diskutil.DevicePathForGlob(cCtx.String("device-glob"))
 	if err != nil {
 		return nil, fmt.Errorf("could not find device path: %w", err)
 	}
@@ -251,7 +252,7 @@ func NewProvisioner(cCtx *cli.Context) (*Provisioner, error) {
 
 	return &Provisioner{
 		AppContract: appContract,
-		DiskConfig: DiskConfig{
+		DiskConfig: diskutil.DiskConfig{
 			DevicePath:   devicePath,
 			MountPoint:   mountPoint,
 			MapperName:   cCtx.String("mapper-name"),
@@ -303,7 +304,7 @@ func RandomDiskLabel() (DiskLabel, error) {
 }
 
 func (p *Provisioner) Do() error {
-	if checkMounted(p.DiskConfig) {
+	if diskutil.IsMounted(p.DiskConfig) {
 		return errors.New("encrypted disk already mounted, refusing to continue")
 	}
 
@@ -344,6 +345,7 @@ func (p *Provisioner) Do() error {
 		return fmt.Errorf("registration failed: %w", err)
 	}
 
+	// TODO: provide a utility function for verifying identity (reimplemented in a couple of places)
 	secretsReportData := parsedResponse.ReportData(p.AppContract)
 	measurements, err := cryptoutils.VerifyDCAPAttestation(secretsReportData, parsedResponse.Attestation)
 	if err != nil {
@@ -373,49 +375,9 @@ func (p *Provisioner) Do() error {
 	// however, the actual guarantee with a random label is roughly
 	// equivalent as both are enforced by the infrastructure operator
 
-	if !isLuks(p.DiskConfig) {
-		// Brand new disk!
-		var err error
-		diskLabel, err := RandomDiskLabel()
-		if err != nil {
-			return fmt.Errorf("could not generate a random disk id")
-		}
-
-		diskKey, err := cryptoutils.DeriveDiskKey(diskLabel[:], []byte(parsedResponse.AppPrivkey))
-		if err != nil {
-			return fmt.Errorf("could not derive disk key")
-		}
-
-		err = setupNewDisk(p.DiskConfig, diskKey)
-		if err != nil {
-			return fmt.Errorf("disk setup failed: %w", err)
-		}
-
-		err = writeMetadataToLUKS(p.DiskConfig, LUKS_TOKEN_ID_DISK_LABEL, diskLabel.String())
-		if err != nil {
-			cleanupMount(p.DiskConfig)
-			return fmt.Errorf("failed to write metadata to LUKS: %w", err)
-		}
-	} else {
-		// Mounting already provisioned disk
-		diskLabelString, err := readMetadataFromLUKS(p.DiskConfig, LUKS_TOKEN_ID_DISK_LABEL)
-		if err != nil {
-			return fmt.Errorf("failed to read metadata from LUKS: %w", err)
-		}
-
-		diskLabel, err := DiskLabelFromString(diskLabelString)
-		if err != nil {
-			return fmt.Errorf("failed to read disk label from LUKS: %w", err)
-		}
-
-		diskKey, err := cryptoutils.DeriveDiskKey(diskLabel[:], []byte(parsedResponse.AppPrivkey))
-		if err != nil {
-			return fmt.Errorf("could not derive disk key")
-		}
-
-		if err = mountExistingDisk(p.DiskConfig, diskKey); err != nil {
-			return fmt.Errorf("disk mounting failed: %w", err)
-		}
+	_, _, err = diskutil.ProvisionOrMountDisk(p.DiskConfig, parsedResponse.AppPrivkey)
+	if err != nil {
+		return fmt.Errorf("could not provision disk: %w", err)
 	}
 
 	pki, err := p.RegistryContract.PKI()
@@ -447,7 +409,7 @@ func (p *Provisioner) Do() error {
 	for _, fw := range fileWrites {
 		// TODO: we should force the perms as well as overwriting
 		if err := os.WriteFile(fw.path, fw.content, fw.mode); err != nil {
-			cleanupMount(p.DiskConfig)
+			diskutil.CleanupMount(p.DiskConfig)
 			return fmt.Errorf("failed to write %s: %w", fw.path, err)
 		}
 	}
