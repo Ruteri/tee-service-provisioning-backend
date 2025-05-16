@@ -22,7 +22,7 @@ import (
 // Parameters:
 //   - ctx: Context for storage operations
 //   - log: Structured logger for operational insights
-//   - porvisioningGovernance: Contract providing storage backend locations
+//   - configGovernance: Contract providing storage backend locations
 //   - storageFactory: Factory for creating storage backends
 //   - configTemplateHash: Content hash of the configuration template to fetch
 //   - appPrivkey: Application private key for decrypting secret references
@@ -30,9 +30,9 @@ import (
 // Returns:
 //   - Fully resolved instance configuration with all references processed
 //   - Error if storage access, template retrieval, or reference processing fails
-func ResolveConfiguration(ctx context.Context, log *slog.Logger, porvisioningGovernance interfaces.PorvisioningGovernance, storageFactory interfaces.StorageBackendFactory, configTemplateHash [32]byte, appPrivkey interfaces.AppPrivkey) (interfaces.InstanceConfig, error) {
+func ResolveConfiguration(ctx context.Context, log *slog.Logger, configGovernance interfaces.ConfigGovernance, storageFactory interfaces.StorageBackendFactory, configTemplateHash [32]byte, appPrivkey interfaces.AppPrivkey) (interfaces.InstanceConfig, error) {
 	// Get all storage backends from registry
-	backendLocations, err := porvisioningGovernance.StorageBackends()
+	backendLocations, err := configGovernance.StorageBackends()
 	if err != nil {
 		return nil, fmt.Errorf("storage backend retrieval error: %w", err)
 	}

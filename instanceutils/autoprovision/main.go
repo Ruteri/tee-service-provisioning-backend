@@ -7,7 +7,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -271,36 +270,6 @@ func NewProvisioner(cCtx *cli.Context) (*Provisioner, error) {
 		SecretsProvider:  secretsProvider,
 		RegistryContract: registryContract,
 	}, nil
-}
-
-type DiskLabel [8]byte
-
-func (d DiskLabel) String() string {
-	return hex.EncodeToString(d[:])
-}
-
-func DiskLabelFromString(data string) (DiskLabel, error) {
-	labelBytes, err := hex.DecodeString(data)
-	if err != nil {
-		return DiskLabel{}, err
-	}
-	if len(labelBytes) != 8 {
-		return DiskLabel{}, errors.New("invalid disk label length")
-	}
-
-	var label DiskLabel
-	copy(label[:], labelBytes)
-
-	return label, nil
-}
-
-func RandomDiskLabel() (DiskLabel, error) {
-	var diskLabel DiskLabel
-	_, err := rand.Read(diskLabel[:])
-	if err != nil {
-		return DiskLabel{}, err
-	}
-	return diskLabel, nil
 }
 
 func (p *Provisioner) Do() error {

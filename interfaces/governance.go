@@ -94,7 +94,7 @@ type OnchainDiscovery interface {
 type OnchainRegistry interface {
 	WorkloadGovernance
 	OnchainDiscovery
-	PorvisioningGovernance
+	ConfigGovernance
 
 	// SetConfigForIdentity associates configuration with an identity.
 	SetConfigForIdentity(identity [32]byte, artifactHash [32]byte) (*types.Transaction, error)
