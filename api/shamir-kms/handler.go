@@ -515,10 +515,10 @@ func (h *AdminHandler) handleSubmitShare(w http.ResponseWriter, r *http.Request)
 	h.log.Info("Share accepted", "adminID", adminID, "shareIndex", submission.ShareIndex)
 }
 
-// verifyAdmin checks if the request is from a whitelisted admin.
+// verifyAdmin checks if the request is from a allowlisted admin.
 //
 // The function verifies that:
-//  1. The admin is in the whitelist (has a registered public key)
+//  1. The admin is in the allowlist (has a registered public key)
 //  2. The request includes a valid signature created with the admin's private key
 //
 // Parameters:
@@ -537,7 +537,7 @@ func (h *AdminHandler) verifyAdmin(r *http.Request) (string, bool) {
 		return "", false
 	}
 
-	// Get admin's public key from the whitelist
+	// Get admin's public key from the allowlist
 	h.mu.RLock()
 	pubKeyPEM, exists := h.adminPubKeys[adminID]
 	h.mu.RUnlock()

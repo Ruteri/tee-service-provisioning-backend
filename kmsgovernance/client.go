@@ -115,7 +115,7 @@ func (c *KmsGovernanceClient) IdentityAllowed(identity [32]byte, operator [20]by
 	return allowed, nil
 }
 
-func (c *KmsGovernanceClient) WhitelistDCAP(report interfaces.DCAPReport) (*types.Transaction, error) {
+func (c *KmsGovernanceClient) AllowlistDCAP(report interfaces.DCAPReport) (*types.Transaction, error) {
 	if c.auth == nil {
 		return nil, ErrNoTransactOpts
 	}
@@ -129,7 +129,7 @@ func (c *KmsGovernanceClient) WhitelistDCAP(report interfaces.DCAPReport) (*type
 		MrConfigOwner: report.MrConfigOwner[:],
 	}
 
-	tx, err := c.contract.WhitelistDCAP(c.auth, contractReport)
+	tx, err := c.contract.AllowlistDCAP(c.auth, contractReport)
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +137,7 @@ func (c *KmsGovernanceClient) WhitelistDCAP(report interfaces.DCAPReport) (*type
 	return tx, nil
 }
 
-func (c *KmsGovernanceClient) WhitelistMAA(report interfaces.MAAReport) (*types.Transaction, error) {
+func (c *KmsGovernanceClient) AllowlistMAA(report interfaces.MAAReport) (*types.Transaction, error) {
 	if c.auth == nil {
 		return nil, ErrNoTransactOpts
 	}
@@ -152,7 +152,7 @@ func (c *KmsGovernanceClient) WhitelistMAA(report interfaces.MAAReport) (*types.
 		PCRs: pcrs,
 	}
 
-	tx, err := c.contract.WhitelistMAA(c.auth, contractReport)
+	tx, err := c.contract.AllowlistMAA(c.auth, contractReport)
 	if err != nil {
 		return nil, err
 	}
@@ -160,12 +160,12 @@ func (c *KmsGovernanceClient) WhitelistMAA(report interfaces.MAAReport) (*types.
 	return tx, nil
 }
 
-func (c *KmsGovernanceClient) WhitelistIdentity(identity [32]byte) (*types.Transaction, error) {
+func (c *KmsGovernanceClient) AllowlistIdentity(identity [32]byte) (*types.Transaction, error) {
 	if c.auth == nil {
 		return nil, ErrNoTransactOpts
 	}
 
-	tx, err := c.contract.WhitelistIdentity(c.auth, identity)
+	tx, err := c.contract.AllowlistIdentity(c.auth, identity)
 	if err != nil {
 		return nil, err
 	}
@@ -173,12 +173,12 @@ func (c *KmsGovernanceClient) WhitelistIdentity(identity [32]byte) (*types.Trans
 	return tx, nil
 }
 
-func (c *KmsGovernanceClient) RemoveWhitelistedIdentity(identity [32]byte) (*types.Transaction, error) {
+func (c *KmsGovernanceClient) RemoveAllowlistedIdentity(identity [32]byte) (*types.Transaction, error) {
 	if c.auth == nil {
 		return nil, ErrNoTransactOpts
 	}
 
-	tx, err := c.contract.RemoveWhitelistedIdentity(c.auth, identity)
+	tx, err := c.contract.RemoveAllowlistedIdentity(c.auth, identity)
 	if err != nil {
 		return nil, err
 	}

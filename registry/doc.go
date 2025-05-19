@@ -13,7 +13,7 @@
 // Key features include:
 //
 // - Identity verification for TDX and MAA attestations
-// - Whitelisting and management of TEE identities
+// - Allowlisting and management of TEE identities
 // - Configuration template storage and retrieval
 // - Encrypted secret management
 // - Storage backend coordination

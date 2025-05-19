@@ -53,17 +53,17 @@ type KMSGovernance interface {
 	WorkloadGovernance
 	OnchainDiscovery
 
-	// WhitelistDCAP adds a DCAP-attested identity to the whitelist.
-	WhitelistDCAP(DCAPReport) (*types.Transaction, error)
+	// AllowlistDCAP adds a DCAP-attested identity to the Allowlist.
+	AllowlistDCAP(DCAPReport) (*types.Transaction, error)
 
-	// WhitelistMAA adds an MAA-attested identity to the whitelist.
-	WhitelistMAA(MAAReport) (*types.Transaction, error)
+	// AllowlistMAA adds an MAA-attested identity to the Allowlist.
+	AllowlistMAA(MAAReport) (*types.Transaction, error)
 
-	// WhitelistIdentity adds an identity hash to the whitelist.
-	WhitelistIdentity([32]byte) (*types.Transaction, error)
+	// AllowlistIdentity adds an identity hash to the Allowlist.
+	AllowlistIdentity([32]byte) (*types.Transaction, error)
 
-	// RemoveWhitelistedIdentity removes an identity from the whitelist.
-	RemoveWhitelistedIdentity([32]byte) (*types.Transaction, error)
+	// RemoveAllowlistedIdentity removes an identity from the Allowlist.
+	RemoveAllowlistedIdentity([32]byte) (*types.Transaction, error)
 
 	// RequestOnboard submits an onboarding request for a new TEE instance.
 	RequestOnboard(OnboardRequest) (*types.Transaction, error)

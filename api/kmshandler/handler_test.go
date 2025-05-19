@@ -117,8 +117,8 @@ func TestHandleSecrets_Success(t *testing.T) {
 	mockRegistry.AssertExpectations(t)
 }
 
-// Test HandleSecrets - Identity Not Whitelisted
-func TestHandleSecrets_IdentityNotWhitelisted(t *testing.T) {
+// Test HandleSecrets - Identity Not Allowed
+func TestHandleSecrets_IdentityNotAllowlisted(t *testing.T) {
 	logger, kmsInstance := setupTestEnvironment(t)
 
 	// Set up mock registry factory

@@ -260,10 +260,10 @@ func (m *MockRegistryClient) SetConfigForIdentity(identity [32]byte, artifactHas
 	return &types.Transaction{}, nil
 }
 
-// RemoveWhitelistedIdentity removes an identity from the whitelist in the mock registry.
+// RemoveAllowlistedIdentity removes an identity from the allowlist in the mock registry.
 // It also removes any artifact mapping for this identity.
 // Returns a simulated transaction and error if transactions are not allowed.
-func (m *MockRegistryClient) RemoveWhitelistedIdentity(identity [32]byte) (*types.Transaction, error) {
+func (m *MockRegistryClient) RemoveAllowlistedIdentity(identity [32]byte) (*types.Transaction, error) {
 	if !m.allowTransacting {
 		return nil, ErrNoTransactOpts
 	}
@@ -271,10 +271,10 @@ func (m *MockRegistryClient) RemoveWhitelistedIdentity(identity [32]byte) (*type
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	// Check if the identity is whitelisted (has an artifact mapping)
+	// Check if the identity is allowed (has an artifact mapping)
 	_, exists := m.idToArtifact[identity]
 	if !exists {
-		return nil, errors.New("identity not whitelisted")
+		return nil, errors.New("identity not allowed")
 	}
 
 	// Remove the artifact mapping
@@ -283,7 +283,7 @@ func (m *MockRegistryClient) RemoveWhitelistedIdentity(identity [32]byte) (*type
 	return &types.Transaction{}, nil
 }
 
-func (m *MockRegistryClient) WhitelistOperator(operator [20]byte) {
+func (m *MockRegistryClient) AllowOperator(operator [20]byte) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 

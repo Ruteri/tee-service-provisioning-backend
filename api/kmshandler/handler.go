@@ -21,7 +21,7 @@ import (
 // authenticate operators, and provide cryptographic materials to authorized instances.
 //
 // The handler is responsible for critical security operations such as:
-// - Verifying TEE instance attestation evidence against onchain whitelists
+// - Verifying TEE instance attestation evidence against onchain allowlist
 // - Validating operator signatures with onchain authorization checks
 // - Providing private keys for application-wide secret decryption
 // - Issuing signed TLS certificates for secure communication

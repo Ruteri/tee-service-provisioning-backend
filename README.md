@@ -12,7 +12,7 @@ The TEE Registry System enables secure provisioning of confidential computing se
 - Support for Intel TDX and Azure Confidential Computing (MAA)
 - Mapping from TEE report data to workload identities
 - Onchain verification of attestation reports (DCAP and MAA)
-- Whitelisting mechanism for authorized identity access
+- Allowlisting mechanism for authorized identity access
 
 ### Onchain Governance
 - Standard onchain TEE service governance interface
@@ -55,7 +55,7 @@ The system consists of the following main components:
 ### Core Components
 
 1. **Governance Interfaces**
-   - **WorkloadGovernance**: Handles identity verification and whitelisting
+   - **WorkloadGovernance**: Handles identity verification and allowlisting
    - **ConfigGovernance**: Manages configuration mapping and storage backends
    - **OnchainDiscovery**: Provides service metadata and domain name management
 
@@ -88,7 +88,7 @@ The system uses a secure KMS bootstrap process:
 2. **Configuration Preparation**:
    - Configurations and secrets are stored in content-addressed storage backends
    - References to storage backends are registered in the governance contract
-   - Workload identities are whitelisted for authorized access
+   - Workload identities are allowlisted for authorized access
 
 ### 2. TEE Instance Provisioning
 
@@ -121,7 +121,7 @@ Once the system is bootstrapped:
 ```go
 // WorkloadGovernance handles TEE identity verification
 interface WorkloadGovernance {
-    // Identity verification and whitelisting
+    // Identity verification and allowlisting
     IdentityAllowed(identity [32]byte, operator [20]byte) (bool, error)
     DCAPIdentity(report DCAPReport, events []DCAPEvent) ([32]byte, error)
     MAAIdentity(report MAAReport) ([32]byte, error)

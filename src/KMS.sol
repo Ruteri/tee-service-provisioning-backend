@@ -32,7 +32,7 @@ contract KMS is AccessControl, Ownable, ReentrancyGuard, WorkloadGovernance, Onc
     // Maps config hash to config data and secrets for onchain DA
     mapping(bytes32 => bytes) public artifacts;
     // Maps identity to config hash
-    mapping(bytes32 => bool) public whitelistedIdentities;
+    mapping(bytes32 => bool) public allowlistedIdentities;
 
     // Events
     event InstanceDomainRegistered(string domain, address registrar);
@@ -40,7 +40,7 @@ contract KMS is AccessControl, Ownable, ReentrancyGuard, WorkloadGovernance, Onc
 	event StorageBackendRemoved(string location, address remover);
     event ArtifactAdded(bytes32 configHash, address adder);
     event PKIUpdated(address updater, AppPKI pki);
-    event IdentityWhitelisted(bytes32 identity, address setter);
+    event IdentityAllowlisted(bytes32 identity, address setter);
 
     /**
      * @dev Constructor to set up initial roles.
@@ -111,58 +111,58 @@ contract KMS is AccessControl, Ownable, ReentrancyGuard, WorkloadGovernance, Onc
         return keccak256(abi.encodePacked(address(this), report.PCRs[4], report.PCRs[9], report.PCRs[11]));
     }
 
-	// Whitelisted identities
+	// Allowlisted identities
 	function IdentityAllowed(bytes32 identity, address operator) external view returns (bool) {
 		require(hasRole(ROLE_OPERATOR, operator), "Operator not authorized");
-		return whitelistedIdentities[identity] == true;
+		return allowlistedIdentities[identity] == true;
 	}
 
     /**
-     * @dev Whitelist DCAP report
+     * @dev Allowlist DCAP report
      * @param report The DCAP report
      */
-    function whitelistDCAP(DCAPReport memory report) 
+    function allowlistDCAP(DCAPReport memory report) 
         public 
         onlyOwner 
 		returns (bytes32 identity)
     {
 		DCAPEvent[] memory emptyLog;
         identity = DCAPIdentity(report, emptyLog);
-		whitelistIdentity(identity);
+		allowlistIdentity(identity);
 		return identity;
     }
 
     /**
-     * @dev Whitelist MAA report
+     * @dev Allowlist MAA report
      * @param report The MAA report
      */
-    function whitelistMAA(MAAReport memory report) 
+    function allowlistMAA(MAAReport memory report) 
         public 
         onlyOwner 
 		returns (bytes32 identity)
     {
         identity = MAAIdentity(report);
-		whitelistIdentity(identity);
+		allowlistIdentity(identity);
 		return identity;
     }
 
-	function whitelistIdentity(bytes32 identity)
+	function allowlistIdentity(bytes32 identity)
         public 
         onlyOwner 
 	{
-        whitelistedIdentities[identity] = true;
-        emit IdentityWhitelisted(identity, msg.sender);
+        allowlistedIdentities[identity] = true;
+        emit IdentityAllowlisted(identity, msg.sender);
 	}
 
     /**
      * @dev Remove a config mapping for identity
      * @param identity The identity hash to remove
      */
-    function removeWhitelistedIdentity(bytes32 identity)
+    function removeAllowlistedIdentity(bytes32 identity)
         public
         onlyOwner
     {
-        delete whitelistedIdentities[identity];
+        delete allowlistedIdentities[identity];
     }
 
 	function HashOnboardRequest(OnboardRequest memory req)

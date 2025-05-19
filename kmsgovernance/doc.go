@@ -2,14 +2,14 @@
 // smart contract in the TEE Registry System.
 //
 // The KMS governance contract controls which TEE instances can interact with the
-// Key Management System by maintaining a whitelist of approved identities based on
+// Key Management System by maintaining a allowlist of approved identities based on
 // attestation evidence. This allows for decentralized, transparent governance of
 // cryptographic material access.
 //
 // This package implements a client that enables:
 //   - Retrieval of PKI information (CA certificates, public keys, attestations)
 //   - Identity computation from attestation reports (DCAP and MAA)
-//   - Identity verification and whitelisting
+//   - Identity verification and allowlisting
 //   - Onboarding request management for new instances
 //   - Domain name registration for service discovery
 //
@@ -31,10 +31,10 @@
 // Additional governance methods enable TEE identity management:
 //
 //	// Identity management methods
-//	func (c *KmsGovernanceClient) WhitelistDCAP(report interfaces.DCAPReport) (*types.Transaction, error)
-//	func (c *KmsGovernanceClient) WhitelistMAA(report interfaces.MAAReport) (*types.Transaction, error)
-//	func (c *KmsGovernanceClient) WhitelistIdentity(identity [32]byte) (*types.Transaction, error)
-//	func (c *KmsGovernanceClient) RemoveWhitelistedIdentity(identity [32]byte) (*types.Transaction, error)
+//	func (c *KmsGovernanceClient) AllowlistDCAP(report interfaces.DCAPReport) (*types.Transaction, error)
+//	func (c *KmsGovernanceClient) AllowlistMAA(report interfaces.MAAReport) (*types.Transaction, error)
+//	func (c *KmsGovernanceClient) AllowlistIdentity(identity [32]byte) (*types.Transaction, error)
+//	func (c *KmsGovernanceClient) RemoveAllowlistedIdentity(identity [32]byte) (*types.Transaction, error)
 //
 // Example usage:
 //

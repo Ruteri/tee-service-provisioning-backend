@@ -16,7 +16,7 @@
 // The API implements a robust security model with multiple layers of verification:
 //
 // 1. TEE Attestation: Verifies the identity of instances using DCAP or MAA reports
-// 2. Onchain Authorization: Checks identity whitelisting in governance contracts
+// 2. Onchain Authorization: Checks identity allowlisting in governance contracts
 // 3. Operator Verification: Optionally verifies operator signatures for authorization
 // 4. Certificate-Based Authentication: TLS mutual authentication for secure connections
 //
@@ -55,7 +55,7 @@
 //
 // The API integrates with onchain governance through:
 //
-// - Verifying identity hashes against whitelists in governance contracts
+// - Verifying identity hashes against allowlists in governance contracts
 // - Publishing PKI information to onchain discovery contracts
 // - Enforcing operator permissions defined in governance contracts
 //

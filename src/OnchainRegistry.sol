@@ -32,7 +32,7 @@ struct AppPKI {
 }
 
 interface WorkloadGovernance {
-	// Whitelisted identities
+	// Allowlisted identities
 	function IdentityAllowed(bytes32 identity, address operator) external view returns (bool);
 
     // Identity computation from attestation reports
@@ -164,7 +164,7 @@ contract Registry is AccessControl, Ownable, ReentrancyGuard, WorkloadGovernance
         return keccak256(abi.encodePacked(address(this), report.PCRs[4], report.PCRs[9], report.PCRs[11]));
     }
 
-	// Whitelisted identities
+	// Allowlisted identities
 	function IdentityAllowed(bytes32 identity, address operator) external view returns (bool) {
 		require(hasRole(ROLE_OPERATOR, operator), "Operator not authorized");
 		return identityConfigMap[identity] != bytes32(0);

@@ -89,8 +89,8 @@ func (m *MockRegistry) RegisterInstanceDomainName(domain string) (*types.Transac
 	return args.Get(0).(*types.Transaction), args.Error(1)
 }
 
-// RemoveWhitelistedIdentity mocks the RemoveWhitelistedIdentity method
-func (m *MockRegistry) RemoveWhitelistedIdentity(identity [32]byte) (*types.Transaction, error) {
+// RemoveAllowlistedIdentity mocks the RemoveAllowlistedIdentity method
+func (m *MockRegistry) RemoveAllowlistedIdentity(identity [32]byte) (*types.Transaction, error) {
 	args := m.Called(identity)
 	return args.Get(0).(*types.Transaction), args.Error(1)
 }
