@@ -1,4 +1,4 @@
-// Package kmshandler implements an HTTP server and client for interacting with 
+// Package kmshandler implements an HTTP server and client for interacting with
 // an onchain-governed Trusted Execution Environment (TEE) Key Management System (KMS).
 //
 // This package provides handlers and clients for secure TEE instance authentication,

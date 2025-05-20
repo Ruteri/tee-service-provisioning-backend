@@ -33,6 +33,9 @@ type KMS interface {
 
 	// AppSecrets provides all cryptographic materials for a TEE instance.
 	AppSecrets(ContractAddress, TLSCSR) (*AppSecrets, error)
+
+	// OnboardRemote encrypts the master secret to a pubkey
+	OnboardRemote(AppPubkey) ([]byte, error)
 }
 
 // WorkloadGovernance handles TEE identity verification through attestation.
@@ -64,6 +67,9 @@ type KMSGovernance interface {
 
 	// RemoveAllowlistedIdentity removes an identity from the Allowlist.
 	RemoveAllowlistedIdentity([32]byte) (*types.Transaction, error)
+
+	// ApplicationAllowed returns whether an application is allowed by KMS governance
+	ApplicationAllowed(app [20]byte) (bool, error)
 
 	// RequestOnboard submits an onboarding request for a new TEE instance.
 	RequestOnboard(OnboardRequest) (*types.Transaction, error)

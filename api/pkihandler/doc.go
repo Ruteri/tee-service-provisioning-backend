@@ -1,9 +1,9 @@
 // Package pkihandler implements HTTP handlers and client functions for
 // the TEE Registry's Public Key Infrastructure (PKI) service.
 //
-// This package provides functionality to retrieve and verify attestation-backed 
-// PKI information for TEE applications identified by their contract addresses. 
-// It serves as an interface to the onchain-governed PKI system and is a critical 
+// This package provides functionality to retrieve and verify attestation-backed
+// PKI information for TEE applications identified by their contract addresses.
+// It serves as an interface to the onchain-governed PKI system and is a critical
 // component for establishing trusted TLS connections between TEE instances.
 //
 // # Key Components
@@ -18,11 +18,11 @@
 //
 // This package functions as part of the larger TEE Registry System architecture:
 //
-// 1. It interfaces with the KMS package to retrieve application-specific PKI materials
-// 2. It provides a consistent API for TEE instances to obtain verified CA certificates
-// 3. It supports the instanceutils components by providing the root certificates
-//    needed for secure inter-instance communication
-// 4. It enables cross-application authentication with onchain-governed identities
+//  1. It interfaces with the KMS package to retrieve application-specific PKI materials
+//  2. It provides a consistent API for TEE instances to obtain verified CA certificates
+//  3. It supports the instanceutils components by providing the root certificates
+//     needed for secure inter-instance communication
+//  4. It enables cross-application authentication with onchain-governed identities
 //
 // # PKI Verification Flow
 //

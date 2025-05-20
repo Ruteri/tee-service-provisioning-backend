@@ -60,7 +60,7 @@ type PKIResponse struct {
 
 // HandlePki processes requests for attested PKI information for a specified contract address.
 // It retrieves the CA certificate and application public key from the onchain-governed KMS,
-// along with attestation evidence that can be verified against the blockchain registry to 
+// along with attestation evidence that can be verified against the blockchain registry to
 // ensure authenticity.
 //
 // URL format: GET /api/public/pki/{contract_address}

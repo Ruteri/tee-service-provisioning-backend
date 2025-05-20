@@ -89,12 +89,12 @@ func (ct ContentType) String() string {
 
 // StorageBackendLocation represents URI for storage backend.
 type StorageBackendLocation struct {
-	Raw    string    // Original URI
-	Scheme string    // Protocol
-	Host   string    // Hostname
-	Path   string    // Resource path
+	Raw    string     // Original URI
+	Scheme string     // Protocol
+	Host   string     // Hostname
+	Path   string     // Resource path
 	Query  url.Values // Query parameters
-	Auth   string    // Authentication info
+	Auth   string     // Authentication info
 }
 
 // NewStorageBackendLocation creates a new storage location from a URI string with validation.

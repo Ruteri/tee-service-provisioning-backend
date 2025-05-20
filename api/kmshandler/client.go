@@ -13,7 +13,7 @@ import (
 	simplekms "github.com/ruteri/tee-service-provisioning-backend/kms"
 )
 
-// SecretsProvider implements a client for retrieving cryptographic materials from the 
+// SecretsProvider implements a client for retrieving cryptographic materials from the
 // onchain-governed KMS. It handles secure communication with the KMS server including
 // the attestation headers required for TEE identity verification.
 //
@@ -81,7 +81,7 @@ func (p *SecretsProvider) OnboardKMS(url string, onboardHash [32]byte, kms *simp
 }
 
 // AppSecrets sends a request to the KMS server to obtain cryptographic materials for a TEE instance.
-// It submits the CSR and attestation evidence, and returns the application private key, 
+// It submits the CSR and attestation evidence, and returns the application private key,
 // signed certificate, and other identity materials.
 //
 // Parameters:

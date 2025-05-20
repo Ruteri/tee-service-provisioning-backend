@@ -82,7 +82,7 @@ func main() {
 				return err
 			}
 
-			kmsServer, err := server.New(flags.ConfigureServer(cCtx, logger, attestedListenAddr), kmshandler.NewHandler(kmsImpl, kmsGovernanceContractAdress, kmsGovernance, registryFactory, logger))
+			kmsServer, err := server.New(flags.ConfigureServer(cCtx, logger, attestedListenAddr), kmshandler.NewHandler(kmshandler.NewSimpleHandlerKMS(kmsImpl, kmsGovernanceContractAdress), kmsGovernance, registryFactory, logger))
 			if err != nil {
 				logger.Error("Failed to create server", "err", err)
 				return err

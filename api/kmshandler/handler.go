@@ -16,6 +16,12 @@ import (
 	simplekms "github.com/ruteri/tee-service-provisioning-backend/kms"
 )
 
+type HandlerKMS interface {
+	interfaces.KMS
+	VerifyOnboardRequest(interfaces.OnboardRequest) (map[int]string, error)
+	OnboardRemote(interfaces.AppPubkey) ([]byte, error)
+}
+
 // Handler processes HTTP requests for the onchain-governed TEE Key Management Service.
 // It integrates with blockchain-based governance contracts to verify identity,
 // authenticate operators, and provide cryptographic materials to authorized instances.
@@ -31,18 +37,16 @@ import (
 // operator authorization through the onchain governance contracts, implementing
 // a robust two-factor authorization model (attestation + operator signature).
 type Handler struct {
-	kms             interfaces.KMS
-	kmsAddress      interfaces.ContractAddress
+	kms             HandlerKMS
 	kmsGovernance   interfaces.KMSGovernance
 	registryFactory interfaces.RegistryFactory
 	log             *slog.Logger
 }
 
 // NewHandler creates a new HTTP request handler with the specified dependencies.
-func NewHandler(kms interfaces.KMS, kmsAddress interfaces.ContractAddress, kmsGovernance interfaces.KMSGovernance, registryFactory interfaces.RegistryFactory, log *slog.Logger) *Handler {
+func NewHandler(kms HandlerKMS, kmsGovernance interfaces.KMSGovernance, registryFactory interfaces.RegistryFactory, log *slog.Logger) *Handler {
 	return &Handler{
 		kms:             kms,
-		kmsAddress:      kmsAddress,
 		kmsGovernance:   kmsGovernance,
 		registryFactory: registryFactory,
 		log:             log,
@@ -87,9 +91,7 @@ func (h *Handler) HandleOnboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Assuming DCAP for now, might add MAA later
-	var onboardReportData [64]byte = simplekms.OnboardRequestReportData(h.kmsAddress, onboardRequest)
-	measurementsMap, err := cryptoutils.VerifyDCAPAttestation(onboardReportData, onboardRequest.Attestation)
+	measurementsMap, err := h.kms.VerifyOnboardRequest(onboardRequest)
 	if err != nil {
 		h.log.Info("attestation issue", "onboardHash", onboardHash, "onboardRequest", onboardRequest, "onboardRequest.Attestation", onboardRequest.Attestation)
 		http.Error(w, fmt.Errorf("invalid attestation: %w", err).Error(), http.StatusBadRequest)
@@ -120,13 +122,12 @@ func (h *Handler) HandleOnboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// TODO: add to interface
-	ecryptedSeed, err := h.kms.(*simplekms.SimpleKMS).OnboardRemote(onboardRequest.Pubkey)
+	ecryptedSeed, err := h.kms.OnboardRemote(onboardRequest.Pubkey)
 	if err != nil {
 		http.Error(w, fmt.Errorf("could not process onboard request: %w", err).Error(), http.StatusInternalServerError)
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/octet-stream")
 	_, err = w.Write(ecryptedSeed)
 	if err != nil {
@@ -136,7 +137,7 @@ func (h *Handler) HandleOnboard(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleSecrets processes TEE instance secrets requests with onchain authorization.
-// It verifies both the instance's identity and operator authorization against 
+// It verifies both the instance's identity and operator authorization against
 // the governance contract, then provides cryptographic materials if authorized.
 //
 // URL format: POST /api/attested/secrets/{contract_address}
@@ -158,6 +159,17 @@ func (h *Handler) HandleSecrets(w http.ResponseWriter, r *http.Request) {
 	contractAddr, err := interfaces.NewContractAddressFromHex(r.PathValue("contract_address"))
 	if err != nil {
 		http.Error(w, fmt.Errorf("invalid contract address: %w", err).Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Should be cached
+	appAllowed, err := h.kmsGovernance.ApplicationAllowed(contractAddr)
+	if err != nil {
+		http.Error(w, fmt.Errorf("could not verify application is allowed: %w", err).Error(), http.StatusInternalServerError)
+		return
+	}
+	if !appAllowed {
+		http.Error(w, fmt.Errorf("application not allowed: %w", err).Error(), http.StatusUnauthorized)
 		return
 	}
 
@@ -265,4 +277,25 @@ func ParseWorkloadAndOperatorIdentity(r *http.Request, registry interfaces.Oncha
 	}
 
 	return identity, operatorAddress, nil
+}
+
+type SimpleHandlerKMS struct {
+	*simplekms.SimpleKMS
+	kmsAddress interfaces.ContractAddress
+}
+
+func NewSimpleHandlerKMS(kms *simplekms.SimpleKMS, addr interfaces.ContractAddress) *SimpleHandlerKMS {
+	return &SimpleHandlerKMS{
+		SimpleKMS:  kms,
+		kmsAddress: addr,
+	}
+}
+
+func (k *SimpleHandlerKMS) VerifyOnboardRequest(onboardRequest interfaces.OnboardRequest) (map[int]string, error) {
+	var onboardReportData [64]byte = simplekms.OnboardRequestReportData(k.kmsAddress, onboardRequest)
+	measurementsMap, err := cryptoutils.VerifyDCAPAttestation(onboardReportData, onboardRequest.Attestation)
+	if err != nil {
+		return nil, fmt.Errorf("invalid attestation: %w", err)
+	}
+	return measurementsMap, nil
 }

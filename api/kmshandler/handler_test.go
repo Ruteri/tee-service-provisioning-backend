@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -21,7 +22,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/ruteri/tee-service-provisioning-backend/cryptoutils"
 	"github.com/ruteri/tee-service-provisioning-backend/interfaces"
-	"github.com/ruteri/tee-service-provisioning-backend/kms"
+	simplekms "github.com/ruteri/tee-service-provisioning-backend/kms"
+	"github.com/ruteri/tee-service-provisioning-backend/kmsgovernance"
 	"github.com/ruteri/tee-service-provisioning-backend/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -29,7 +31,7 @@ import (
 )
 
 // setupTestEnvironment creates common test components
-func setupTestEnvironment(t *testing.T) (*slog.Logger, interfaces.KMS) {
+func setupTestEnvironment(t *testing.T) (*slog.Logger, *MockHandlerKMS) {
 	// Create logger with no output for tests
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
@@ -37,10 +39,10 @@ func setupTestEnvironment(t *testing.T) (*slog.Logger, interfaces.KMS) {
 	masterKey := make([]byte, 32)
 	_, err := rand.Read(masterKey)
 	require.NoError(t, err)
-	kmsInstance, err := kms.NewSimpleKMS(masterKey)
+	kmsInstance, err := simplekms.NewSimpleKMS(masterKey)
 	require.NoError(t, err)
 
-	return logger, kmsInstance
+	return logger, NewMockHandlerKMS(kmsInstance)
 }
 
 func getTestMeasurements() string {
@@ -72,8 +74,11 @@ func TestHandleSecrets_Success(t *testing.T) {
 	mockRegistry.On("DCAPIdentity", mock.Anything).Return(identity, nil)
 	mockRegistry.On("IdentityAllowed", identity, mock.Anything).Return(true, nil)
 
+	governanceStub := kmsgovernance.NewKMSGovernance(contractAddr, interfaces.ContractAddress{})
+	governanceStub.AllowApp(contractAddr)
+
 	// Create handler
-	handler := NewHandler(kmsInstance, contractAddr, nil, mockRegistryFactory, logger)
+	handler := NewHandler(kmsInstance, governanceStub, mockRegistryFactory, logger)
 
 	// Create test CSR
 	_, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(contractAddr).String())
@@ -100,7 +105,7 @@ func TestHandleSecrets_Success(t *testing.T) {
 	resp := w.Result()
 	defer resp.Body.Close()
 
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, http.StatusOK, resp.StatusCode, resp.Body)
 
 	var result interfaces.AppSecrets
 	respBody, err := io.ReadAll(resp.Body)
@@ -134,8 +139,11 @@ func TestHandleSecrets_IdentityNotAllowlisted(t *testing.T) {
 	mockRegistry.On("DCAPIdentity", mock.Anything).Return(identity, nil)
 	mockRegistry.On("IdentityAllowed", identity, mock.Anything).Return(false, nil)
 
+	governanceStub := kmsgovernance.NewKMSGovernance(contractAddr, interfaces.ContractAddress{})
+	governanceStub.AllowApp(contractAddr)
+
 	// Create handler
-	handler := NewHandler(kmsInstance, contractAddr, nil, mockRegistryFactory, logger)
+	handler := NewHandler(kmsInstance, governanceStub, mockRegistryFactory, logger)
 
 	// Create test CSR
 	_, csr, err := cryptoutils.CreateCSRWithRandomKey(interfaces.NewAppCommonName(contractAddr).String())
@@ -190,8 +198,11 @@ func TestHandleSecrets_WithOperatorSignature(t *testing.T) {
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
 	mockRegistry.On("DCAPIdentity", mock.Anything).Return(identity, nil)
 
+	governanceStub := kmsgovernance.NewKMSGovernance(contractAddr, interfaces.ContractAddress{})
+	governanceStub.AllowApp(contractAddr)
+
 	// Create handler
-	handler := NewHandler(kmsInstance, contractAddr, nil, mockRegistryFactory, logger)
+	handler := NewHandler(kmsInstance, governanceStub, mockRegistryFactory, logger)
 
 	// Create a private key for the instance
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -303,8 +314,11 @@ func TestHandleSecrets_UnauthorizedOperator(t *testing.T) {
 	mockRegistryFactory.On("RegistryFor", contractAddr).Return(mockRegistry, nil)
 	mockRegistry.On("DCAPIdentity", mock.Anything).Return(identity, nil)
 
+	governanceStub := kmsgovernance.NewKMSGovernance(contractAddr, interfaces.ContractAddress{})
+	governanceStub.AllowApp(contractAddr)
+
 	// Create handler
-	handler := NewHandler(kmsInstance, contractAddr, nil, mockRegistryFactory, logger)
+	handler := NewHandler(kmsInstance, governanceStub, mockRegistryFactory, logger)
 
 	// Create a private key for the instance
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -394,6 +408,7 @@ func TestHandleSecrets_UnauthorizedOperator(t *testing.T) {
 func TestHandleSecrets_InvalidInput(t *testing.T) {
 	logger, kmsInstance := setupTestEnvironment(t)
 
+	contractAddr, _ := interfaces.NewContractAddressFromHex("0123456789abcdef0123")
 	identity := [32]byte{1, 2, 3, 4}
 
 	// Set up mock registry factory
@@ -403,8 +418,11 @@ func TestHandleSecrets_InvalidInput(t *testing.T) {
 	mockRegistry.On("IdentityAllowed", identity, mock.Anything).Return(true, nil)
 	mockRegistryFactory.On("RegistryFor", mock.Anything).Return(mockRegistry, nil)
 
+	governanceStub := kmsgovernance.NewKMSGovernance(interfaces.ContractAddress{}, interfaces.ContractAddress{})
+	governanceStub.AllowApp(contractAddr)
+
 	// Create handler
-	handler := NewHandler(kmsInstance, interfaces.ContractAddress{}, nil, mockRegistryFactory, logger)
+	handler := NewHandler(kmsInstance, governanceStub, mockRegistryFactory, logger)
 
 	testCases := []struct {
 		name         string
@@ -416,7 +434,7 @@ func TestHandleSecrets_InvalidInput(t *testing.T) {
 	}{
 		{
 			name:         "Empty CSR",
-			contractAddr: hex.EncodeToString([]byte("0123456789abcdef0123")),
+			contractAddr: contractAddr.String(),
 			csrData:      []byte{},
 			headers: map[string]string{
 				cryptoutils.AttestationTypeHeader: cryptoutils.DCAPAttestation.StringID,
@@ -438,7 +456,7 @@ func TestHandleSecrets_InvalidInput(t *testing.T) {
 		},
 		{
 			name:         "Missing Attestation Type",
-			contractAddr: hex.EncodeToString([]byte("0123456789abcdef0123")),
+			contractAddr: contractAddr.String(),
 			csrData:      []byte("dummy-csr"),
 			headers: map[string]string{
 				cryptoutils.MeasurementHeader: getTestMeasurements(),
@@ -448,7 +466,7 @@ func TestHandleSecrets_InvalidInput(t *testing.T) {
 		},
 		{
 			name:         "Missing Measurements",
-			contractAddr: hex.EncodeToString([]byte("0123456789abcdef0123")),
+			contractAddr: contractAddr.String(),
 			csrData:      []byte("dummy-csr"),
 			headers: map[string]string{
 				cryptoutils.AttestationTypeHeader: cryptoutils.DCAPAttestation.StringID,
@@ -491,4 +509,210 @@ func TestHandleSecrets_InvalidInput(t *testing.T) {
 			assert.Contains(t, string(body), tc.wantBody)
 		})
 	}
+}
+
+// TestHandleOnboard_GreenPath tests the success path for KMS onboarding
+func TestHandleOnboard_GreenPath(t *testing.T) {
+	logger, masterMockKms := setupTestEnvironment(t)
+
+	// Set up our KMS governance implementation
+	contractAddr, _ := interfaces.NewContractAddressFromHex("0123456789abcdef0123")
+	ownerAddr, _ := interfaces.NewContractAddressFromHex("0123456789abcdef0123")
+	governanceStub := kmsgovernance.NewKMSGovernance(contractAddr, ownerAddr)
+
+	// Generate an ECDSA keypair for the new instance (simulating the TEE's key)
+	appPubkey, appPrivkey, err := cryptoutils.RandomP256Keypair()
+	require.NoError(t, err)
+
+	operatorAddr := ownerAddr
+	var operatorAddress [20]byte
+	copy(operatorAddress[:], operatorAddr.Bytes())
+
+	// Create a DCAPReport from the test measurements
+	measurementsJSON := getTestMeasurements()
+	var measurementsMap map[int]string
+	err = json.Unmarshal([]byte(measurementsJSON), &measurementsMap)
+	require.NoError(t, err)
+
+	dcapReport, err := interfaces.DCAPReportFromMeasurement(measurementsMap)
+	require.NoError(t, err)
+
+	// Allowlist the identity
+	identity, err := governanceStub.DCAPIdentity(*dcapReport, nil)
+	require.NoError(t, err)
+	_, err = governanceStub.AllowlistIdentity(identity)
+	require.NoError(t, err)
+
+	// Generate mock attestation
+	attestation := make([]byte, 100)
+	_, err = rand.Read(attestation)
+	require.NoError(t, err)
+
+	// Create and submit onboard request with our generated public key
+	onboardRequest := interfaces.OnboardRequest{
+		Pubkey:      appPubkey,
+		Nonce:       big.NewInt(1),
+		Operator:    operatorAddress,
+		Attestation: attestation,
+	}
+	_, err = governanceStub.RequestOnboard(onboardRequest)
+	require.NoError(t, err)
+
+	// Calculate request hash for the URL
+	data := []byte{}
+	data = append(data, onboardRequest.Pubkey...)
+	nonceBytes := onboardRequest.Nonce.Bytes()
+	data = append(data, nonceBytes...)
+	data = append(data, onboardRequest.Operator[:]...)
+	data = append(data, onboardRequest.Attestation...)
+
+	hash := crypto.Keccak256(data)
+	var reqHash [32]byte
+	copy(reqHash[:], hash)
+	onboardHashHex := hex.EncodeToString(reqHash[:])
+
+	// Create handler with our governance stub
+	handler := NewHandler(masterMockKms.WithMeasurements(measurementsMap), governanceStub, nil, logger)
+
+	// Create HTTP request
+	req := httptest.NewRequest(
+		http.MethodGet,
+		fmt.Sprintf("/api/attested/onboard/%s", onboardHashHex),
+		nil,
+	)
+
+	// Create response recorder
+	w := httptest.NewRecorder()
+
+	// Set up router and serve the request
+	mux := chi.NewRouter()
+	handler.RegisterRoutes(mux)
+	mux.ServeHTTP(w, req)
+
+	// Verify the response
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	// Check for success status
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// Read the encrypted master key
+	encryptedMasterKey, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.NotEmpty(t, encryptedMasterKey, "Response should contain encrypted seed data")
+
+	// Verify the content type is correct
+	assert.Equal(t, "application/octet-stream", resp.Header.Get("Content-Type"))
+
+	// Decrypt the master key using our private key
+	decryptedMasterKey, err := cryptoutils.DecryptWithPrivateKey(appPrivkey, encryptedMasterKey)
+	require.NoError(t, err, "Should be able to decrypt the master key")
+
+	// Create a new SimpleKMS instance with the decrypted master key
+	newInstanceKMS, err := simplekms.NewSimpleKMS(decryptedMasterKey)
+	require.NoError(t, err)
+
+	// Test that both KMS instances derive the same keys
+	// We'll test with a few different contract addresses
+	testAddresses := []string{
+		"0000000000000000000000000000000000000001",
+		"1111111111111111111111111111111111111111",
+		"ffffffffffffffffffffffffffffffffffffffff",
+	}
+
+	for _, testAddressaHex := range testAddresses {
+		testAddress, _ := interfaces.NewContractAddressFromHex(testAddressaHex)
+
+		masterDerivedPrivkey, err := masterMockKms.GetAppPrivkey(testAddress)
+		require.NoError(t, err)
+
+		followerDerivedPrivkey, err := newInstanceKMS.GetAppPrivkey(testAddress)
+		require.NoError(t, err)
+
+		require.Equal(t, masterDerivedPrivkey, followerDerivedPrivkey)
+	}
+}
+
+// TestHandleOnboard_InvalidRequest tests error handling for invalid onboard requests
+func TestHandleOnboard_InvalidRequest(t *testing.T) {
+	logger, kmsInstance := setupTestEnvironment(t)
+
+	// Set up our KMS governance implementation
+	contractAddr, _ := interfaces.NewContractAddressFromHex("0123456789abcdef0123")
+	ownerAddr, _ := interfaces.NewContractAddressFromHex("0123456789abcdef0123")
+	governanceStub := kmsgovernance.NewKMSGovernance(contractAddr, ownerAddr)
+
+	// Create handler with our governance stub
+	handler := NewHandler(kmsInstance, governanceStub, nil, logger)
+
+	testCases := []struct {
+		name       string
+		onboardID  string
+		wantStatus int
+		wantBody   string
+	}{
+		{
+			name:       "Invalid Onboard Hash",
+			onboardID:  "invalid-hash",
+			wantStatus: http.StatusBadRequest,
+			wantBody:   "invalid",
+		},
+		{
+			name:       "Non-existent Onboard Request",
+			onboardID:  hex.EncodeToString(make([]byte, 32)),
+			wantStatus: http.StatusUnauthorized,
+			wantBody:   "not found",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create HTTP request
+			req := httptest.NewRequest(
+				http.MethodGet,
+				fmt.Sprintf("/api/attested/onboard/%s", tc.onboardID),
+				nil,
+			)
+
+			// Create response recorder
+			w := httptest.NewRecorder()
+
+			// Set up router and serve the request
+			mux := chi.NewRouter()
+			handler.RegisterRoutes(mux)
+			mux.ServeHTTP(w, req)
+
+			// Verify the response
+			resp := w.Result()
+			defer resp.Body.Close()
+
+			assert.Equal(t, tc.wantStatus, resp.StatusCode)
+
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			assert.Contains(t, string(body), tc.wantBody)
+		})
+	}
+}
+
+type MockHandlerKMS struct {
+	*simplekms.SimpleKMS
+	measurementsMap map[int]string
+}
+
+func NewMockHandlerKMS(kms *simplekms.SimpleKMS) *MockHandlerKMS {
+	return &MockHandlerKMS{
+		SimpleKMS:       kms,
+		measurementsMap: make(map[int]string),
+	}
+}
+
+func (k *MockHandlerKMS) WithMeasurements(m map[int]string) *MockHandlerKMS {
+	newKms := *k
+	newKms.measurementsMap = m
+	return &newKms
+}
+
+func (k *MockHandlerKMS) VerifyOnboardRequest(interfaces.OnboardRequest) (map[int]string, error) {
+	return k.measurementsMap, nil
 }

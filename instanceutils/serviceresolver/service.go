@@ -10,7 +10,7 @@ import (
 type ServiceMetadata struct {
 	// PKI contains the application's CA certificate, public key, and attestation
 	PKI interfaces.AppPKI
-	
+
 	// IPs contains the IP addresses of all registered instances
 	IPs []string
 }

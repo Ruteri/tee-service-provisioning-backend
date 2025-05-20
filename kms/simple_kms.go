@@ -63,7 +63,7 @@ func OnboardRequestHash(onboardRequest interfaces.OnboardRequest) ([32]byte, err
 	return crypto.Keccak256Hash(packed), nil
 }
 
-// OnboardRequestReportData generates expected attestation report data 
+// OnboardRequestReportData generates expected attestation report data
 // for an onboard request verification.
 func OnboardRequestReportData(kmsAddress interfaces.ContractAddress, onboardRequest interfaces.OnboardRequest) [64]byte {
 	var onboardReportData [64]byte

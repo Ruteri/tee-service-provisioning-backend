@@ -210,4 +210,33 @@ contract KMS is AccessControl, Ownable, ReentrancyGuard, WorkloadGovernance, Onc
 	function InstanceDomainNames() public view returns (string[] memory) {
 		return m_instanceDomainNames;
 	}
+
+	// App Allowlist
+    address[] private allowedApps;
+
+    function ApplicationAllowed(address app) public view returns (bool) {
+        for (uint256 i = 0; i < allowedApps.length; i++) {
+            if (allowedApps[i] == app) {
+				return true;
+            }
+        }
+
+		return false;
+    }
+
+    function AllowApplication(address app) public onlyOwner {
+        allowedApps.push(app);
+    }
+
+    function RemoveAllowlistedApplication(address app) public onlyOwner {
+        for (uint256 i = 0; i < allowedApps.length; i++) {
+            if (allowedApps[i] == app) {
+                // Replace with the last element
+                allowedApps[i] = allowedApps[allowedApps.length - 1];
+                // Remove the last element
+                allowedApps.pop();
+                break;
+            }
+        }
+    }
 }

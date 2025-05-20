@@ -12,11 +12,11 @@ import (
 )
 
 // ResolveConfiguration uses provided data availability backends to resolve the configuration
-// pointed to by the config governance contract, and decrypts any secrets using the 
+// pointed to by the config governance contract, and decrypts any secrets using the
 // provided app private key.
 //
 // This implementation retrieves storage backend locations from the governance contract,
-// fetches the configuration template, and processes it by resolving all references and 
+// fetches the configuration template, and processes it by resolving all references and
 // decrypting encrypted secrets.
 //
 // Parameters:

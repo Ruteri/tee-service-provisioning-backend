@@ -229,7 +229,7 @@ func (a *OperatorAuth) RegisterRoutes(r chi.Router) {
 // SetupKMS initalizes and bootstraps KMS. Note that for shamir this call will
 // wait until shamir kms is bootstrapped (which requires admins to fetch or submit
 // their shares).
-func SetupKMS(cCtx *cli.Context, logger *slog.Logger, kmsContract interfaces.ContractAddress, kmsGovernance interfaces.KMSGovernance) (interfaces.KMS, error) {
+func SetupKMS(cCtx *cli.Context, logger *slog.Logger, kmsContract interfaces.ContractAddress, kmsGovernance interfaces.KMSGovernance) (*kms.SimpleKMS, error) {
 	kmsType := cCtx.String(KmsTypeFlag.Name)
 	bootstrapListenAddr := cCtx.String(KmsBootstrapListenAddrFlag.Name)
 	kmsRemoteAttestationProvider := cCtx.String(RemoteAttestationFlag.Name)

@@ -75,12 +75,7 @@ func (c *KmsGovernanceClient) DCAPIdentity(report interfaces.DCAPReport, events 
 		}
 	}
 
-	identity, err := c.contract.DCAPIdentity(opts, contractReport, contractEvents)
-	if err != nil {
-		return [32]byte{}, err
-	}
-
-	return identity, nil
+	return c.contract.DCAPIdentity(opts, contractReport, contractEvents)
 }
 
 func (c *KmsGovernanceClient) MAAIdentity(report interfaces.MAAReport) ([32]byte, error) {
@@ -96,23 +91,13 @@ func (c *KmsGovernanceClient) MAAIdentity(report interfaces.MAAReport) ([32]byte
 		PCRs: pcrs,
 	}
 
-	identity, err := c.contract.MAAIdentity(opts, contractReport)
-	if err != nil {
-		return [32]byte{}, err
-	}
-
-	return identity, nil
+	return c.contract.MAAIdentity(opts, contractReport)
 }
 
 func (c *KmsGovernanceClient) IdentityAllowed(identity [32]byte, operator [20]byte) (bool, error) {
 	opts := &bind.CallOpts{Context: context.Background()}
 
-	allowed, err := c.contract.IdentityAllowed(opts, identity, operator)
-	if err != nil {
-		return false, err
-	}
-
-	return allowed, nil
+	return c.contract.IdentityAllowed(opts, identity, operator)
 }
 
 func (c *KmsGovernanceClient) AllowlistDCAP(report interfaces.DCAPReport) (*types.Transaction, error) {
@@ -129,12 +114,7 @@ func (c *KmsGovernanceClient) AllowlistDCAP(report interfaces.DCAPReport) (*type
 		MrConfigOwner: report.MrConfigOwner[:],
 	}
 
-	tx, err := c.contract.AllowlistDCAP(c.auth, contractReport)
-	if err != nil {
-		return nil, err
-	}
-
-	return tx, nil
+	return c.contract.AllowlistDCAP(c.auth, contractReport)
 }
 
 func (c *KmsGovernanceClient) AllowlistMAA(report interfaces.MAAReport) (*types.Transaction, error) {
@@ -152,12 +132,7 @@ func (c *KmsGovernanceClient) AllowlistMAA(report interfaces.MAAReport) (*types.
 		PCRs: pcrs,
 	}
 
-	tx, err := c.contract.AllowlistMAA(c.auth, contractReport)
-	if err != nil {
-		return nil, err
-	}
-
-	return tx, nil
+	return c.contract.AllowlistMAA(c.auth, contractReport)
 }
 
 func (c *KmsGovernanceClient) AllowlistIdentity(identity [32]byte) (*types.Transaction, error) {
@@ -165,12 +140,7 @@ func (c *KmsGovernanceClient) AllowlistIdentity(identity [32]byte) (*types.Trans
 		return nil, ErrNoTransactOpts
 	}
 
-	tx, err := c.contract.AllowlistIdentity(c.auth, identity)
-	if err != nil {
-		return nil, err
-	}
-
-	return tx, nil
+	return c.contract.AllowlistIdentity(c.auth, identity)
 }
 
 func (c *KmsGovernanceClient) RemoveAllowlistedIdentity(identity [32]byte) (*types.Transaction, error) {
@@ -178,12 +148,7 @@ func (c *KmsGovernanceClient) RemoveAllowlistedIdentity(identity [32]byte) (*typ
 		return nil, ErrNoTransactOpts
 	}
 
-	tx, err := c.contract.RemoveAllowlistedIdentity(c.auth, identity)
-	if err != nil {
-		return nil, err
-	}
-
-	return tx, nil
+	return c.contract.RemoveAllowlistedIdentity(c.auth, identity)
 }
 
 func (c *KmsGovernanceClient) RequestOnboard(request interfaces.OnboardRequest) (*types.Transaction, error) {
@@ -199,12 +164,7 @@ func (c *KmsGovernanceClient) RequestOnboard(request interfaces.OnboardRequest) 
 		Attestation: request.Attestation,
 	}
 
-	tx, err := c.contract.RequestOnboard(c.auth, contractRequest)
-	if err != nil {
-		return nil, err
-	}
-
-	return tx, nil
+	return c.contract.RequestOnboard(c.auth, contractRequest)
 }
 
 func (c *KmsGovernanceClient) FetchOnboardRequest(requestId [32]byte) (interfaces.OnboardRequest, error) {
@@ -229,12 +189,7 @@ func (c *KmsGovernanceClient) FetchOnboardRequest(requestId [32]byte) (interface
 func (c *KmsGovernanceClient) InstanceDomainNames() ([]string, error) {
 	opts := &bind.CallOpts{Context: context.Background()}
 
-	domains, err := c.contract.InstanceDomainNames(opts)
-	if err != nil {
-		return nil, err
-	}
-
-	return domains, nil
+	return c.contract.InstanceDomainNames(opts)
 }
 
 func (c *KmsGovernanceClient) RegisterInstanceDomainName(domain string) (*types.Transaction, error) {
@@ -242,10 +197,11 @@ func (c *KmsGovernanceClient) RegisterInstanceDomainName(domain string) (*types.
 		return nil, ErrNoTransactOpts
 	}
 
-	tx, err := c.contract.RegisterInstanceDomainName(c.auth, domain)
-	if err != nil {
-		return nil, err
-	}
+	return c.contract.RegisterInstanceDomainName(c.auth, domain)
+}
 
-	return tx, nil
+func (c *KmsGovernanceClient) ApplicationAllowed(app [20]byte) (bool, error) {
+	opts := &bind.CallOpts{Context: context.Background()}
+
+	return c.contract.ApplicationAllowed(opts, app)
 }
